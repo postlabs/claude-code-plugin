@@ -1,4 +1,5 @@
 ---
+name: openai-agents:eval
 description: Evaluate agent performance with test cases
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash(python:*, pytest:*)

@@ -1,4 +1,5 @@
 ---
+name: openai-agents:migrate
 description: Migrate to new OpenAI Agent SDK versions
 argument-hint: [target-version]
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash(pip:*, python:*)

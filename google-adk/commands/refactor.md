@@ -1,4 +1,5 @@
 ---
+name: google-adk:refactor
 description: Refactor Google ADK agent code for better structure, maintainability, and best practices.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]

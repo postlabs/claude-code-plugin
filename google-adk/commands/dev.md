@@ -1,4 +1,5 @@
 ---
+name: google-adk:dev
 description: General development assistance for Google ADK projects - modifying agents, improving code, adding features.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]

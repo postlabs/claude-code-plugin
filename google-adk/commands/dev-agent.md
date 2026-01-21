@@ -1,4 +1,5 @@
 ---
+name: google-adk:dev-agent
 description: Create or modify Google ADK agents - LLM agents, workflow agents (Sequential, Parallel, Loop), or custom agents.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]

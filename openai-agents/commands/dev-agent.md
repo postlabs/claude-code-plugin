@@ -1,4 +1,5 @@
 ---
+name: openai-agents:dev-agent
 description: Create or modify agents with proper configuration
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob

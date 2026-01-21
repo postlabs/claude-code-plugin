@@ -1,4 +1,5 @@
 ---
+name: openai-agents:run
 description: Run and test agents interactively
 argument-hint: [agent-file] [prompt]
 allowed-tools: Read, Bash(python:*)

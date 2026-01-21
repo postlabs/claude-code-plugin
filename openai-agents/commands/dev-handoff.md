@@ -1,4 +1,5 @@
 ---
+name: openai-agents:dev-handoff
 description: Configure handoffs between agents for multi-agent workflows
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob

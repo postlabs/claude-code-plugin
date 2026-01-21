@@ -1,4 +1,5 @@
 ---
+name: openai-agents:trace
 description: Configure and view execution traces for debugging
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob

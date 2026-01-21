@@ -1,4 +1,5 @@
 ---
+name: openai-agents:dev-tool
 description: Create tools for agents (function, hosted, MCP)
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob

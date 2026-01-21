@@ -1,4 +1,5 @@
 ---
+name: google-adk:init
 description: Initialize a new Google ADK project with standard structure, dependencies, and a basic agent template.
 argument-hint: "[project-name]"
 allowed-tools: ["Read", "Write", "Bash", "Glob"]

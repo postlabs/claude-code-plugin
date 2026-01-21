@@ -1,4 +1,5 @@
 ---
+name: openai-agents:init
 description: Initialize a new OpenAI Agent SDK project with best practices
 argument-hint: [project-name]
 allowed-tools: Read, Write, Bash(mkdir:*, python:*, pip:*, uv:*)

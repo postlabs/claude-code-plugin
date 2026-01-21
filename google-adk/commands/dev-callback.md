@@ -1,4 +1,5 @@
 ---
+name: google-adk:dev-callback
 description: Configure callbacks for Google ADK agent lifecycle events - guardrails, sanitization, logging, validation.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]

@@ -1,4 +1,5 @@
 ---
+name: google-adk:deploy
 description: Deploy Google ADK agents to production - Vertex AI, Cloud Run, Docker, or GKE.
 argument-hint: "[target]"
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Glob"]

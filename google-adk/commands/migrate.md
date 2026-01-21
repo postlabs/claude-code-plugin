@@ -1,4 +1,5 @@
 ---
+name: google-adk:migrate
 description: Migrate Google ADK projects to new SDK versions - breaking changes, API updates, deprecations.
 argument-hint: "[target-version]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]

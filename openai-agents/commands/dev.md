@@ -1,4 +1,5 @@
 ---
+name: openai-agents:dev
 description: General development assistance for OpenAI Agent SDK projects
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash(python:*, pip:*, pytest:*)

@@ -1,4 +1,5 @@
 ---
+name: openai-agents:dev-session
 description: Configure sessions for conversation persistence
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob

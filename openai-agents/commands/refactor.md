@@ -1,4 +1,5 @@
 ---
+name: openai-agents:refactor
 description: Refactor agent code for better structure and maintainability
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob

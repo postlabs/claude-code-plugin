@@ -1,4 +1,5 @@
 ---
+name: google-adk:eval
 description: Create and run evaluations for Google ADK agents - test cases, metrics, and quality assessment.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]

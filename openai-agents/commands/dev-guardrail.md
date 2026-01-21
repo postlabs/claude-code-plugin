@@ -1,4 +1,5 @@
 ---
+name: openai-agents:dev-guardrail
 description: Add input/output guardrails for agent safety
 argument-hint: [request]
 allowed-tools: Read, Write, Edit, Grep, Glob
