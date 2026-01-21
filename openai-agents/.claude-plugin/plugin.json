@@ -1,24 +1,12 @@
 {
   "name": "openai-agents",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "OpenAI Agent SDK plugin for Claude Code - build AI agents with tools, handoffs, guardrails, and sessions",
-  "author": "Postlabs",
+  "author": {
+    "name": "Postlabs",
+    "url": "https://github.com/postlabs"
+  },
   "repository": "https://github.com/postlabs/claude-code-plugin",
-  "commands": [
-    "init",
-    "dev",
-    "dev-agent",
-    "dev-tool",
-    "dev-handoff",
-    "dev-guardrail",
-    "dev-session",
-    "run",
-    "trace",
-    "eval",
-    "refactor",
-    "migrate"
-  ],
-  "skills": [
-    "openai-agents-sdk"
-  ]
+  "license": "MIT",
+  "keywords": ["openai", "agents", "sdk", "multi-agent", "ai"]
 }

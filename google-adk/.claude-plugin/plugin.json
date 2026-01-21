@@ -1,23 +1,12 @@
 {
   "name": "google-adk",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Google Agent Development Kit plugin for Claude Code - build AI agents with multi-agent systems, callbacks, and deployment",
-  "author": "Postlabs",
+  "author": {
+    "name": "Postlabs",
+    "url": "https://github.com/postlabs"
+  },
   "repository": "https://github.com/postlabs/claude-code-plugin",
-  "commands": [
-    "init",
-    "dev",
-    "dev-agent",
-    "dev-tool",
-    "dev-callback",
-    "dev-multi",
-    "run",
-    "eval",
-    "deploy",
-    "refactor",
-    "migrate"
-  ],
-  "skills": [
-    "google-adk-sdk"
-  ]
+  "license": "MIT",
+  "keywords": ["google", "adk", "agents", "gemini", "vertex-ai", "multi-agent"]
 }

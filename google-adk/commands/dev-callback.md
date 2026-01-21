@@ -1,60 +1,63 @@
-# /google-adk:dev-callback
+---
+name: dev-callback
+description: Configure callbacks for Google ADK agent lifecycle events - guardrails, sanitization, logging, validation.
+argument-hint: "[request]"
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
+---
 
 Configure callbacks for agent lifecycle events.
 
-## Usage
+## Task
 
-```
-/google-adk:dev-callback [request]
-```
+Help the user implement callbacks for their agents.
 
 ## Callback Types
 
-### Before/After Agent
-```python
-def before_agent(context, agent, request):
-    # Run before agent processes request
-    return None  # Continue normally
+| Callback | Timing | Purpose |
+|----------|--------|---------|
+| before_model_callback | Before LLM call | Guardrails, input validation |
+| after_model_callback | After LLM response | Sanitization, transformation |
+| before_tool_callback | Before tool execution | Argument validation, policies |
+| after_tool_callback | After tool execution | Logging, post-processing |
 
-def after_agent(context, agent, response):
-    # Run after agent completes
-    return None  # Use response as-is
-```
+## Return Value Control
 
-### Before/After Model
-```python
-def before_model(context, agent, request):
-    # Run before LLM call
-    return None
-
-def after_model(context, agent, response):
-    # Run after LLM response
-    return None
-```
-
-### Before/After Tool
-```python
-def before_tool(context, agent, tool, args):
-    # Run before tool execution
-    return None
-
-def after_tool(context, agent, tool, result):
-    # Run after tool execution
-    return None
-```
-
-## Use Cases
-
-- **Observability**: Log execution details
-- **Security**: Validate inputs/outputs
-- **State Management**: Update session state
-- **Response Customization**: Modify results
-- **External Integration**: Trigger notifications
+- **Return None**: Proceed with default behavior
+- **Return value**: Replace default (skip that step)
 
 ## Examples
 
+### Guardrail (Block harmful content)
+```python
+def before_model_guardrail(callback_context, llm_request):
+    user_input = str(llm_request.contents[-1])
+    if "forbidden" in user_input.lower():
+        return LlmResponse(
+            content=Content(parts=[Part(text="I cannot discuss that.")])
+        )
+    return None  # Proceed normally
+
+agent = Agent(before_model_callback=before_model_guardrail)
 ```
-/google-adk:dev-callback add logging callback
-/google-adk:dev-callback add input validation callback
-/google-adk:dev-callback add rate limiting callback
+
+### Logging
+```python
+def after_tool_log(callback_context, tool_name, tool_result):
+    print(f"Tool {tool_name} returned: {tool_result}")
+    return None  # Use original result
+
+agent = Agent(after_tool_callback=after_tool_log)
 ```
+
+### Tool Validation
+```python
+def before_tool_validate(callback_context, tool_name, tool_args):
+    if tool_name == "database_query":
+        if "DROP" in tool_args.get("query", "").upper():
+            return {"status": "error", "message": "Dangerous query blocked"}
+    return None  # Proceed
+
+agent = Agent(before_tool_callback=before_tool_validate)
+```
+
+Load the Google ADK - Callbacks skill for complete callback patterns.

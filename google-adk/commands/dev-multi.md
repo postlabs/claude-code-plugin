@@ -1,65 +1,78 @@
-# /google-adk:dev-multi
+---
+name: dev-multi
+description: Design and implement multi-agent systems in Google ADK - hierarchies, coordination patterns, communication strategies.
+argument-hint: "[request]"
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
+---
 
-Configure multi-agent systems.
+Design and implement multi-agent systems.
 
-## Usage
+## Task
 
+Help the user create multi-agent architectures.
+
+## Communication Patterns
+
+### 1. Shared Session State
+Agents communicate via `session.state` using output_key:
+```python
+researcher = Agent(
+    name="researcher",
+    output_key="research_findings",  # Saves to state
+)
+writer = Agent(
+    name="writer",
+    instruction="Write based on: {research_findings}",  # Reads from state
+)
+pipeline = SequentialAgent(sub_agents=[researcher, writer])
 ```
-/google-adk:dev-multi [request]
+
+### 2. LLM-Driven Delegation
+Router automatically selects sub-agents by description:
+```python
+support = Agent(name="support", description="Handles technical support")
+billing = Agent(name="billing", description="Handles billing questions")
+router = Agent(name="router", sub_agents=[support, billing])
+```
+
+### 3. Explicit AgentTool
+Agent as callable tool:
+```python
+specialist = Agent(name="specialist", ...)
+coordinator = Agent(tools=[AgentTool(agent=specialist)])
 ```
 
 ## Multi-Agent Patterns
 
-### Hierarchical
-```python
-# Router delegates to specialists
-router = Agent(
-    name="router",
-    sub_agents=[support_agent, billing_agent, sales_agent]
-)
+### Coordinator/Dispatcher
+```
+        Coordinator
+       /     |     \
+  Finance  Legal   Tech
 ```
 
 ### Sequential Pipeline
+```
+Input → Preprocessor → Analyzer → Reporter → Output
+```
+
+### Parallel Fan-Out/Gather
+```
+       Dispatcher
+      /    |    \
+   A      B      C
+      \   |   /
+     Aggregator
+```
+
+### Generator-Critic Loop
 ```python
-pipeline = SequentialAgent(
-    name="pipeline",
-    sub_agents=[
-        data_collector,
-        analyzer,
-        reporter
-    ]
+generator = Agent(output_key="draft")
+critic = Agent(instruction="Review: {draft}. If OK, escalate=True")
+loop = LoopAgent(
+    sub_agent=SequentialAgent(sub_agents=[generator, critic]),
+    max_iterations=3
 )
 ```
 
-### Parallel Processing
-```python
-parallel = ParallelAgent(
-    name="parallel",
-    sub_agents=[
-        web_searcher,
-        doc_searcher,
-        db_searcher
-    ]
-)
-```
-
-### Mixed Architecture
-```python
-# Combine patterns
-main = Agent(
-    name="main",
-    sub_agents=[
-        SequentialAgent(...),
-        ParallelAgent(...),
-        specialist_agent
-    ]
-)
-```
-
-## Examples
-
-```
-/google-adk:dev-multi create router with 3 specialist agents
-/google-adk:dev-multi create data processing pipeline
-/google-adk:dev-multi combine sequential and parallel agents
-```
+Load the Google ADK - Multi-Agent Systems skill for complete architecture guidance.

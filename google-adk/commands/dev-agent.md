@@ -1,17 +1,20 @@
-# /google-adk:dev-agent
+---
+name: dev-agent
+description: Create or modify Google ADK agents - LLM agents, workflow agents (Sequential, Parallel, Loop), or custom agents.
+argument-hint: "[request]"
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
+---
 
-Create or modify agents.
+Create or modify agents using Google ADK.
 
-## Usage
+## Task
 
-```
-/google-adk:dev-agent [request]
-```
+Help the user create or modify agents based on their requirements.
 
 ## Agent Types
 
-### LLM Agent
-Dynamic, model-driven decision-making.
+### LLM Agent (Default)
+Dynamic, model-driven decision-making:
 ```python
 from google.adk import Agent
 
@@ -19,45 +22,52 @@ agent = Agent(
     name="assistant",
     model="gemini-2.0-flash",
     instruction="You are a helpful assistant",
-    tools=[...]
+    description="General assistant for user queries",  # For routing
+    tools=[...],
+    sub_agents=[...],  # Optional delegation
 )
 ```
 
 ### Workflow Agents
-Structured execution patterns.
+Structured execution patterns:
 
-#### SequentialAgent
+**SequentialAgent** - Execute in order:
 ```python
 from google.adk import SequentialAgent
-agent = SequentialAgent(name="pipeline", sub_agents=[agent1, agent2])
+pipeline = SequentialAgent(name="pipeline", sub_agents=[step1, step2, step3])
 ```
 
-#### ParallelAgent
+**ParallelAgent** - Execute concurrently:
 ```python
 from google.adk import ParallelAgent
-agent = ParallelAgent(name="parallel", sub_agents=[agent1, agent2])
+parallel = ParallelAgent(name="parallel", sub_agents=[task1, task2, task3])
 ```
 
-#### LoopAgent
+**LoopAgent** - Iterate until condition:
 ```python
 from google.adk import LoopAgent
-agent = LoopAgent(name="loop", sub_agent=worker, max_iterations=5)
+loop = LoopAgent(name="loop", sub_agent=worker, max_iterations=5)
 ```
 
 ### Custom Agent
+For complex logic:
 ```python
 from google.adk import BaseAgent
 
 class MyAgent(BaseAgent):
     async def run(self, context):
-        # Custom logic
+        # Custom implementation
         pass
 ```
 
-## Examples
+## Key Parameters
 
-```
-/google-adk:dev-agent create a customer support agent
-/google-adk:dev-agent create a sequential pipeline
-/google-adk:dev-agent create a parallel processing agent
-```
+- **name**: Required identifier
+- **model**: LLM model to use (gemini-2.0-flash, etc.)
+- **instruction**: System prompt for the agent
+- **description**: Used for routing in multi-agent systems
+- **tools**: List of available tools
+- **sub_agents**: Child agents for delegation
+- **output_key**: Save output to session state
+
+Load the Google ADK - Agent Creation skill for complete configuration details.

@@ -1,60 +1,74 @@
-# /google-adk:dev-tool
+---
+name: dev-tool
+description: Create tools for Google ADK agents - function tools, built-in tools, MCP tools, OpenAPI tools, or AgentTool.
+argument-hint: "[request]"
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
+---
 
-Create tools for agents.
+Create tools for Google ADK agents.
 
-## Usage
+## Task
 
-```
-/google-adk:dev-tool [request]
-```
+Help the user create tools based on their requirements.
 
 ## Tool Types
 
 ### Function Tools
+Python functions automatically converted to tools:
 ```python
-from google.adk import FunctionTool
+def get_weather(city: str, unit: str = "celsius") -> dict:
+    """Get weather information for a city.
 
-def get_weather(city: str) -> str:
-    """Get weather for a city."""
-    return f"Weather in {city}: Sunny"
+    Args:
+        city: The city name to get weather for
+        unit: Temperature unit (celsius or fahrenheit)
 
-tool = FunctionTool(func=get_weather)
+    Returns:
+        Weather information including temperature and conditions
+    """
+    return {
+        "status": "success",
+        "city": city,
+        "temperature": 22,
+        "unit": unit,
+    }
+
+agent = Agent(tools=[get_weather])
 ```
 
-### Pre-built Tools
+### Built-in Tools
+```python
+from google.adk.tools import GoogleSearchTool, CodeExecutionTool
 
-#### Gemini Tools
-- Google Search
-- Code Execution
-- Computer Use
+agent = Agent(tools=[GoogleSearchTool(), CodeExecutionTool()])
+```
 
-#### Google Cloud Tools
-- BigQuery
-- Spanner
-- Vertex AI Search
-- RAG Engine
+### AgentTool
+Use another agent as a tool:
+```python
+from google.adk import AgentTool
 
-#### Third-party Tools
-- GitHub, Asana, Notion, Linear
-- Stripe, PayPal
-- And more...
+specialist = Agent(name="specialist", ...)
+main_agent = Agent(tools=[AgentTool(agent=specialist)])
+```
 
 ### MCP Tools
 ```python
-from google.adk import MCPTool
-tool = MCPTool(server_url="...")
+from google.adk.tools import MCPTool
+mcp_tool = MCPTool(server_url="https://mcp.example.com", tool_name="my_tool")
 ```
 
 ### OpenAPI Tools
 ```python
-from google.adk import OpenAPITool
-tool = OpenAPITool(spec_url="https://api.example.com/openapi.json")
+from google.adk.tools import OpenAPITool
+api_tool = OpenAPITool(spec_url="https://api.example.com/openapi.json")
 ```
 
-## Examples
+## Requirements
 
-```
-/google-adk:dev-tool create a function tool for database queries
-/google-adk:dev-tool add Google Search capability
-/google-adk:dev-tool integrate with GitHub API
-```
+- **Docstrings**: Required - LLM uses them to understand the tool
+- **Type hints**: Required - Schema generation needs them
+- **Return dict**: Include "status" field for success/error
+- **Error handling**: Return error dict, never raise exceptions
+
+Load the Google ADK - Tools skill for complete tool patterns.
