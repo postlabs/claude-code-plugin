@@ -1,5 +1,4 @@
 ---
-name: dev-tool
 description: Create tools for Google ADK agents - function tools, built-in tools, MCP tools, OpenAPI tools, or AgentTool.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]

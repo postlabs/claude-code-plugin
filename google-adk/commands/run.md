@@ -1,5 +1,4 @@
 ---
-name: run
 description: Run Google ADK agents locally - execute agents, start dev UI, or run API server.
 argument-hint: "[agent-file] [prompt]"
 allowed-tools: ["Read", "Bash", "Glob"]

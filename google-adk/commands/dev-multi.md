@@ -1,5 +1,4 @@
 ---
-name: dev-multi
 description: Design and implement multi-agent systems in Google ADK - hierarchies, coordination patterns, communication strategies.
 argument-hint: "[request]"
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
