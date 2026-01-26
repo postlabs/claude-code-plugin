@@ -1,6 +1,6 @@
 {
   "name": "postlabs-plugins",
-  "description": "AI Agent SDK plugins for Claude Code - OpenAI Agents and Google ADK",
+  "description": "Claude Code plugins for AI agent development and workflow automation",
   "owner": {
     "name": "Postlabs",
     "email": "contact@postlabs.dev"
@@ -27,6 +27,28 @@
         "name": "Postlabs"
       },
       "homepage": "https://github.com/postlabs/claude-code-plugin/tree/main/google-adk"
+    },
+    {
+      "name": "git-sync",
+      "source": "./git-sync",
+      "description": "Git commit protocol for multi-session collaboration with structured commit messages",
+      "version": "0.1.0",
+      "category": "workflow",
+      "author": {
+        "name": "Postlabs"
+      },
+      "homepage": "https://github.com/postlabs/claude-code-plugin/tree/main/git-sync"
+    },
+    {
+      "name": "context-export",
+      "source": "./context-export",
+      "description": "Export coding context as prompt for web LLMs (Claude.ai, ChatGPT, Gemini)",
+      "version": "0.1.0",
+      "category": "workflow",
+      "author": {
+        "name": "Postlabs"
+      },
+      "homepage": "https://github.com/postlabs/claude-code-plugin/tree/main/context-export"
     }
   ]
 }
