@@ -1,0 +1,8 @@
+{
+  "name": "git-sync",
+  "version": "0.1.0",
+  "description": "Git commit protocol for multi-session collaboration with structured commit messages",
+  "author": {
+    "name": "Claude Code Plugin Developer"
+  }
+}

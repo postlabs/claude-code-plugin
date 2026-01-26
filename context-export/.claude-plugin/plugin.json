@@ -1,0 +1,8 @@
+{
+  "name": "context-export",
+  "version": "0.1.0",
+  "description": "Export current coding context as a comprehensive prompt for web LLMs like Claude.ai, ChatGPT, or Gemini",
+  "author": {
+    "name": "Claude Code Plugin Developer"
+  }
+}
