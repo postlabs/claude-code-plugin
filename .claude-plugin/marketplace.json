@@ -54,7 +54,7 @@
       "name": "smart-mode",
       "source": "./smart-mode",
       "description": "Autonomous end-to-end development mode with 4-phase loop: discuss, prepare, develop, verify",
-      "version": "0.1.0",
+      "version": "0.2.1",
       "category": "workflow",
       "author": {
         "name": "Postlabs"
