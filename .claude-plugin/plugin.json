@@ -1,0 +1,11 @@
+{
+  "name": "postlabs-plugins",
+  "version": "0.2.1",
+  "description": "Claude Code plugins for AI agent development and workflow automation",
+  "author": {
+    "name": "Postlabs",
+    "email": "contact@postlabs.dev"
+  },
+  "repository": "https://github.com/postlabs/claude-code-plugin",
+  "license": "MIT"
+}
