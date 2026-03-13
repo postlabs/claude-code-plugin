@@ -60,6 +60,17 @@
         "name": "Postlabs"
       },
       "homepage": "https://github.com/postlabs/claude-code-plugin/tree/main/smart-mode"
+    },
+    {
+      "name": "session-sync",
+      "source": "./session-sync",
+      "description": "Write session summary to docs_hj/ and commit+push all changes including the summary",
+      "version": "0.2.3",
+      "category": "workflow",
+      "author": {
+        "name": "Postlabs"
+      },
+      "homepage": "https://github.com/postlabs/claude-code-plugin/tree/main/session-sync"
     }
   ]
 }

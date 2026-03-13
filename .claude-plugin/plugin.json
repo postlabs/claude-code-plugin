@@ -1,6 +1,6 @@
 {
   "name": "postlabs-plugins",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Claude Code plugins for AI agent development and workflow automation",
   "author": {
     "name": "Postlabs",
