@@ -1,0 +1,562 @@
+## actions.yaml Schema
+
+Each action is a top-level key in actions.yaml. The key is the action name (snake_case).
+
+### Action Definition
+
+```yaml
+action_name:
+  description: "Human-readable description of what this action does"
+  url: "https://example.com/page"        # Optional: target URL
+  auto_generated: true                    # Always true for Action Creator
+  created_at: "2026-04-02T12:00:00Z"     # ISO8601 timestamp
+  params:                                 # Optional: input parameters
+    param_name:
+      type: string                        # string | number | boolean | integer
+      required: true                      # true | false
+      default: null                       # Optional default value
+      description: "What this param is"   # Optional description
+  steps:                                  # List of execution steps
+    - action: click
+      selector: ...
+    - action: fill
+      selector: ...
+      value: $param_name                  # $-prefixed = parameter reference
+  verified_with:                          # Optional: test case metadata
+    test_key: "test_value"
+```
+
+### Step Types
+
+Each step has an `action` field and type-specific fields:
+
+#### click — Click an element
+```yaml
+- action: click
+  selector:
+    selectors:
+      - strategy: role_name
+        value: 'button:"Submit"'
+        priority: 0
+```
+
+#### fill — Type text into an input
+```yaml
+- action: fill
+  selector:
+    selectors:
+      - strategy: role_name
+        value: 'textbox:"Search"'
+        priority: 0
+  value: $query                           # $param_name or {{ faker.email }} etc.
+```
+
+**IMPORTANT RULE for `fill`:** 
+If you are filling a form field that requires unique data every time (like an email, ID, username, password, or current date), DO NOT hardcode literal values like `test_123@gmail.com`. You MUST use template variables instead:
+- `{{ faker.email }}` - Generates a random email
+- `{{ faker.user_name }}` - Generates a random username
+- `{{ faker.name }}` - Generates a random name
+- `{{ faker.password }}` - Generates a random password
+- `{{ faker.phone_number }}` - Generates a random phone number
+- `{{ date.today }}` - Inserts today's date
+
+#### select — Select a dropdown option
+```yaml
+- action: select
+  selector:
+    selectors:
+      - strategy: role_name
+        value: 'combobox:"Category"'
+        priority: 0
+  value: $category
+```
+
+#### press — Press a keyboard key
+```yaml
+- action: press
+  key: Enter
+```
+
+#### navigate — Go to a URL
+```yaml
+- action: navigate
+  url: "https://example.com/page"
+```
+
+#### scroll — Scroll the page
+```yaml
+- action: scroll
+  direction: down                         # up | down | left | right
+  distance: 500                           # pixels (optional)
+```
+
+#### extract_text — Extract text from an element
+```yaml
+- action: extract_text
+  selector:
+    selectors:
+      - strategy: role_name
+        value: 'heading:"Page Title"'
+        priority: 0
+```
+
+#### extract_list — Extract repeating items
+```yaml
+- action: extract_list
+  selector:
+    selectors:
+      - strategy: role_name
+        value: 'listitem'
+        priority: 0
+  limit: 20                               # Optional: max items
+```
+
+#### wait — Wait for an element to appear or a condition to be met
+```yaml
+- action: wait
+  selector:                               # Wait for element (optional)
+    selectors:
+      - strategy: role_name
+        value: 'heading:"Results"'
+        priority: 1
+  timeout: 5000                           # Max wait in ms (default: 5000)
+  state: visible                          # visible | hidden | attached (default: visible)
+```
+
+#### handle_dialog — Accept or dismiss browser dialogs (alert/confirm/prompt)
+```yaml
+- action: handle_dialog
+  accept: true                            # true = OK/accept, false = Cancel/dismiss
+  prompt_text: null                        # Optional: text to enter for prompt dialogs
+```
+
+#### select_custom — Select from non-standard dropdown (click trigger → click option)
+Many sites use custom dropdowns (`<div>` + `<a>` lists) instead of native `<select>`.
+This step opens the trigger element, then clicks the matching option by text.
+```yaml
+- action: select_custom
+  trigger:                                # Element that opens the dropdown
+    selectors:
+      - strategy: role_name
+        value: 'link:"성별"'
+        priority: 1
+      - strategy: tree_path
+        value: 'generic:"Fortune" > link:"성별"'
+        priority: 2
+  option_text: $gender                    # Text of the option to select ($param or literal)
+```
+
+#### evaluate — Execute JavaScript for custom widget interactions
+Use ONLY when standard actions (click, fill, select, select_custom) cannot target the element.
+Common cases: custom scroll wheels, canvas-based UIs, programmatic state changes.
+```yaml
+- action: evaluate
+  script: |
+    const container = document.querySelector('.date_picker .lst_item._ul');
+    const links = container.querySelectorAll('a.link');
+    for (const l of links) {
+      if (l.textContent.trim() === '$year') { l.click(); break; }
+    }
+  description: "Select year in custom scroll wheel date picker"
+  params_used: [year]                     # List of $params referenced in script
+```
+
+**`evaluate` rules:**
+- Always provide a `description` explaining what the script does
+- Always list `params_used` for any $param references in the script
+- Use `document.querySelector` with specific class/attribute selectors, not fragile indexes
+- Keep scripts minimal — one DOM operation per evaluate step
+- Prefer standard actions (click, fill, select_custom) over evaluate when possible
+
+### Selector Format
+
+Selectors use a multi-strategy approach with fallbacks. **Each selector MUST have at least 2-3 strategies** for resilience.
+
+There are **7 strategy types** organized by priority:
+
+**Priority 1 (direct identification):**
+- `role_name` — ARIA role + accessible name. Format: `role:"name"`. Always include this.
+- `content` — Sibling text disambiguation. Used when role_name is non-unique. Include `context_text` field with nearby text.
+
+**Priority 2 (structural/positional):**
+- `tree_path` — Ancestor chain path using meaningful (non-generic) roles. Format: `ancestor > ... > target`. Max 3 ancestors.
+- `tree_path_index` — Index-based tree path using sibling indices. Resilient to dynamic content. Format: `generic[0] > generic[2] > button[0]`.
+- `relative_index` — Section heading + positional index within that section. Format: `section(heading:"News") > link[0]`.
+- `relative_index_grouped` — Repeating group container + positional index. For items in lists/cards/grids. Format: `section(heading:"News") > generic[0] > link[0]` or `group(main > generic[0]) > generic[0] > link[0]`.
+
+**Priority 3 (fallback):**
+- `relative` — Nearest landmark-relative position. Format: `near(navigation:"Main") > button:"Submit"`. Last resort.
+
+```yaml
+# Example: button with 3 strategies (recommended minimum)
+selector:
+  selectors:
+    - strategy: role_name
+      value: 'button:"Login"'
+      priority: 1
+    - strategy: tree_path
+      value: 'form:"Login Form" > button:"Login"'
+      priority: 2
+    - strategy: relative
+      value: 'near(main:"Content") > button:"Login"'
+      priority: 3
+
+# Example: non-unique element needs content strategy
+selector:
+  selectors:
+    - strategy: role_name
+      value: 'link:"More"'
+      priority: 1
+    - strategy: content
+      value: 'link:"More"'
+      context_text: "News Section"
+      priority: 1
+    - strategy: tree_path
+      value: 'region:"News" > link:"More"'
+      priority: 2
+    - strategy: relative_index
+      value: 'section(heading:"News") > link[0]'
+      priority: 2
+
+# Example: item in a repeating list
+selector:
+  selectors:
+    - strategy: role_name
+      value: 'listitem'
+      priority: 1
+    - strategy: tree_path_index
+      value: 'list[0] > listitem[0]'
+      priority: 2
+    - strategy: relative_index_grouped
+      value: 'section(heading:"Results") > generic[0] > listitem[0]'
+      priority: 2
+```
+
+**Rules for generating selectors:**
+1. ALWAYS include `role_name` (priority 1)
+2. Add `tree_path` or `tree_path_index` (priority 2) as structural fallback
+3. Add `relative` or `relative_index` (priority 3 or 2) when possible
+4. Use `content` only when `role_name` matches multiple elements
+5. Use `relative_index_grouped` for items inside repeating containers (lists, grids, card layouts)
+
+### Parameter References & Abstraction (CRITICAL)
+
+**IMPORTANT RULE for Abstraction:**
+If a specific keyword, entity name, or selection dictates the flow of your scenario (e.g., a "search query" that you type, which then appears in the URL, and later used to find the matching result link), **YOU MUST NEVER HARDCODE IT.**
+You must formalize it as a parameter in the `params` block, and use `$param_name` or `{{param_name}}` consistently across all steps.
+
+This applies to:
+- `fill` values (e.g., typing the search query)
+- `navigate` URLs (e.g., `https://shop.com/search?q={{query}}`)
+- `selector` values (e.g., `value: 'link:"{{query}} 세부정보"'`)
+
+Use `$param_name` or `{{param_name}}` in step values to reference action parameters:
+
+```yaml
+search_products:
+  description: "Search for products"
+  params:
+    query:
+      type: string
+      required: true
+      description: "Search keyword"
+  steps:
+    - action: fill
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'textbox:"Search"'
+            priority: 0
+      value: $query                       # References params.query
+    - action: click
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'button:"Search"'
+            priority: 0
+```
+
+### Action Naming Conventions
+
+- `list_{page}` — Extract repeating items (e.g., `list_inbox`, `list_products`)
+- `search_{page}` — Fill search + extract results (e.g., `search_inbox`)
+- `submit_{page}` — Fill form + submit (e.g., `submit_compose`, `submit_login`)
+- `get_{page}` — Extract detail info (e.g., `get_email_detail`)
+- `navigate_{page}` — Navigate to a specific page/state
+- `click_{element}` — Simple click action (e.g., `click_compose_button`)
+
+### Complete Example
+
+```yaml
+search_inbox:
+  description: "Search emails by keyword"
+  auto_generated: true
+  created_at: "2026-04-02T12:00:00Z"
+  params:
+    query:
+      type: string
+      required: true
+      description: "Search keyword"
+  steps:
+    - action: fill
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'textbox:"Search mail"'
+            priority: 1
+          - strategy: tree_path
+            value: 'search:"Mail Search" > textbox:"Search mail"'
+            priority: 2
+          - strategy: relative
+            value: 'near(banner:"Header") > textbox:"Search mail"'
+            priority: 3
+      value: $query
+    - action: press
+      key: Enter
+    - action: extract_list
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'listitem'
+            priority: 1
+          - strategy: tree_path
+            value: 'list:"Messages" > listitem'
+            priority: 2
+          - strategy: relative_index_grouped
+            value: 'section(heading:"Inbox") > generic[0] > listitem[0]'
+            priority: 2
+      limit: 20
+
+list_inbox:
+  description: "List all emails in inbox"
+  auto_generated: true
+  created_at: "2026-04-02T12:00:00Z"
+  steps:
+    - action: extract_list
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'listitem'
+            priority: 1
+          - strategy: tree_path_index
+            value: 'generic[0] > list[0] > listitem[0]'
+            priority: 2
+          - strategy: relative_index
+            value: 'section(heading:"Inbox") > listitem[0]'
+            priority: 2
+      limit: 50
+
+submit_compose:
+  description: "Compose and send a new email"
+  auto_generated: true
+  created_at: "2026-04-02T12:00:00Z"
+  params:
+    to:
+      type: string
+      required: true
+      description: "Recipient email address"
+    subject:
+      type: string
+      required: true
+      description: "Email subject"
+    body:
+      type: string
+      required: true
+      description: "Email body"
+  steps:
+    - action: click
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'button:"Compose"'
+            priority: 1
+          - strategy: tree_path
+            value: 'banner:"Toolbar" > button:"Compose"'
+            priority: 2
+    - action: fill
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'combobox:"To"'
+            priority: 1
+          - strategy: tree_path
+            value: 'dialog:"New Message" > combobox:"To"'
+            priority: 2
+      value: $to
+    - action: fill
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'textbox:"Subject"'
+            priority: 1
+          - strategy: tree_path
+            value: 'dialog:"New Message" > textbox:"Subject"'
+            priority: 2
+      value: $subject
+    - action: fill
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'textbox:"Message Body"'
+            priority: 1
+          - strategy: tree_path
+            value: 'dialog:"New Message" > textbox:"Message Body"'
+            priority: 2
+      value: $body
+    - action: click
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'button:"Send"'
+            priority: 1
+          - strategy: tree_path
+            value: 'dialog:"New Message" > button:"Send"'
+            priority: 2
+          - strategy: relative
+            value: 'near(dialog:"New Message") > button:"Send"'
+            priority: 3
+```
+
+### Inline Service Example (Custom Widget)
+
+```yaml
+check_fortune:
+  description: "네이버 오늘의 운세 확인 (성별, 생년월일 입력 → 운세 결과)"
+  url: "https://search.naver.com/search.naver?query=오늘의+운세"
+  auto_generated: true
+  created_at: "2026-04-03T00:55:00Z"
+  params:
+    gender:
+      type: string
+      required: true
+      default: "남성"
+      description: "성별 (남성/여성)"
+    year:
+      type: string
+      required: true
+      description: "출생 년도 (e.g., 1990)"
+    month:
+      type: string
+      required: true
+      description: "출생 월 (e.g., 3)"
+    day:
+      type: string
+      required: true
+      default: "1"
+      description: "출생 일 (e.g., 15)"
+  steps:
+    # 1. 검색으로 운세 인라인 서비스 진입
+    - action: navigate
+      url: "https://search.naver.com/search.naver?query=오늘의+운세"
+    # 2. 성별 선택 (커스텀 드롭다운)
+    - action: select_custom
+      trigger:
+        selectors:
+          - strategy: role_name
+            value: 'link:"성별"'
+            priority: 1
+          - strategy: tree_path
+            value: 'heading:"운세" > link:"성별"'
+            priority: 2
+      option_text: $gender
+    # 3. 생년월일 날짜 선택기 열기
+    - action: click
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'link:"생년월일"'
+            priority: 1
+    # 4. 년도 선택 (커스텀 스크롤 휠 — evaluate 필요)
+    - action: evaluate
+      script: |
+        const dp = document.querySelector('.pop_select_box._dateCustomSelect');
+        const uls = dp.querySelectorAll('.lst_item._ul');
+        const yearLinks = uls[0].querySelectorAll('a.link');
+        for (const l of yearLinks) {
+          if (l.textContent.trim() === '$year') { l.click(); break; }
+        }
+      description: "Select year in date picker scroll wheel"
+      params_used: [year]
+    # 5. 월 선택
+    - action: evaluate
+      script: |
+        const dp = document.querySelector('.pop_select_box._dateCustomSelect');
+        const uls = dp.querySelectorAll('.lst_item._ul');
+        const monthLinks = uls[1].querySelectorAll('a.link');
+        for (const l of monthLinks) {
+          if (l.textContent.trim() === '$month') { l.click(); break; }
+        }
+      description: "Select month in date picker scroll wheel"
+      params_used: [month]
+    # 6. 일 선택
+    - action: evaluate
+      script: |
+        const dp = document.querySelector('.pop_select_box._dateCustomSelect');
+        const uls = dp.querySelectorAll('.lst_item._ul');
+        const dayLinks = uls[2].querySelectorAll('a.link');
+        for (const l of dayLinks) {
+          if (l.textContent.trim() === '$day') { l.click(); break; }
+        }
+      description: "Select day in date picker scroll wheel"
+      params_used: [day]
+    # 7. 운세 확인하기 버튼 클릭
+    - action: click
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'button:"운세 확인하기"'
+            priority: 1
+    # 8. 다이얼로그 처리 (성별 미선택 등 validation alert)
+    - action: handle_dialog
+      accept: true
+    # 9. 운세 결과 대기
+    - action: wait
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'heading:"운세의 총운은"'
+            priority: 1
+      timeout: 5000
+    # 10. 운세 결과 추출
+    - action: extract_text
+      selector:
+        selectors:
+          - strategy: role_name
+            value: 'paragraph'
+            priority: 1
+          - strategy: tree_path
+            value: 'heading:"운세" > paragraph'
+            priority: 2
+```
+
+### site.yaml Schema
+
+```yaml
+site: site_name
+entry_url: "https://example.com"
+pages:
+  page_name:
+    url_pattern: "/path"
+    verified: false
+    discovered_at: "2026-04-02T12:00:00Z"
+    discovered_via:
+      trigger: null                       # or { click: element_name }
+```
+
+### pages/{page_name}.yaml Schema
+
+```yaml
+page: page_name
+url_pattern: "/path"
+elements:
+  element_key:
+    role: "button"
+    name: "Submit"
+repeating:
+  group_key:
+    role: "listitem"
+    name: "Email row"
+    fields:
+      field1: "sender"
+      field2: "subject"
+```

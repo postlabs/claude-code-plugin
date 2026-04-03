@@ -71,6 +71,13 @@
         "name": "Postlabs"
       },
       "homepage": "https://github.com/postlabs/claude-code-plugin/tree/main/session-sync"
+    },
+    {
+      "name": "action-creator",
+      "source": "./action-creator",
+      "description": "Sprint-based multi-agent pipeline for website automation action generation",
+      "version": "0.1.0",
+      "category": "workflow"
     }
   ]
 }
