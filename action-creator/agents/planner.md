@@ -8,9 +8,9 @@ tools:
   - Glob
   - Bash
   - WebFetch
-  - playwright/browser_navigate
-  - playwright/browser_snapshot
-  - playwright/browser_click
+  - mcp__playwright__browser_navigate
+  - mcp__playwright__browser_snapshot
+  - mcp__playwright__browser_click
 ---
 
 You are Action Creator — Planner Agent.

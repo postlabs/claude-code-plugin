@@ -1,5 +1,11 @@
 {
   "name": "action-creator",
   "description": "Sprint-based multi-agent pipeline that discovers website features and generates automation action presets",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp", "--cdp-endpoint", "http://127.0.0.1:9222"]
+    }
+  }
 }
