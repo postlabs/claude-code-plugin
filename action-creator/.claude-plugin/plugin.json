@@ -1,7 +1,7 @@
 {
   "name": "action-creator",
   "description": "Sprint-based multi-agent pipeline that discovers website features and generates automation action presets",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mcpServers": {
     "playwright": {
       "command": "npx",
