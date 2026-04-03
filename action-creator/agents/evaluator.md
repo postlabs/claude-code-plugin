@@ -6,16 +6,16 @@ tools:
   - Read
   - Write
   - Glob
-  - mcp__playwright__browser_navigate
-  - mcp__playwright__browser_snapshot
-  - mcp__playwright__browser_click
-  - mcp__playwright__browser_type
-  - mcp__playwright__browser_fill_form
-  - mcp__playwright__browser_press_key
-  - mcp__playwright__browser_select_option
-  - mcp__playwright__browser_evaluate
-  - mcp__playwright__browser_handle_dialog
-  - mcp__playwright__browser_wait_for
+  - mcp__plugin_action-creator_playwright__browser_navigate
+  - mcp__plugin_action-creator_playwright__browser_snapshot
+  - mcp__plugin_action-creator_playwright__browser_click
+  - mcp__plugin_action-creator_playwright__browser_type
+  - mcp__plugin_action-creator_playwright__browser_fill_form
+  - mcp__plugin_action-creator_playwright__browser_press_key
+  - mcp__plugin_action-creator_playwright__browser_select_option
+  - mcp__plugin_action-creator_playwright__browser_evaluate
+  - mcp__plugin_action-creator_playwright__browser_handle_dialog
+  - mcp__plugin_action-creator_playwright__browser_wait_for
 ---
 
 You are Action Creator — Evaluator Agent.
