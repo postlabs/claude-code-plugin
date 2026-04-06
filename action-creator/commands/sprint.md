@@ -64,15 +64,43 @@ Agent(subagent_type="action-creator:planner")
 1. Read `sprint_plan.yaml` from the Planner's working directory.
 2. If `login_required: true` → report to user and stop.
 3. If no sprints → report to user and stop.
-4. Count total scenarios across all sprints. Report the plan to the user.
+4. Parse the plan structure:
+   - `scenarios[]` — user-level intents with decomposed `actions[]` and optional `chain`
+   - `sprints[]` — execution groups referencing action names
+5. Count total actions across all sprints.
+
+### Phase 1.5: Scenario Review (User Confirmation)
+
+Display the scenario list to the user in this format:
+
+```
+## 발견된 시나리오
+
+| # | 시나리오 | Actions | Chain |
+|---|---------|---------|-------|
+| 1 | 오늘의 급등주 뉴스 찾기 | list_top_gainers → get_stock_news | ✓ |
+| 2 | 환율 변환 | convert_currency | - |
+| 3 | ... | ... | ... |
+
+총 {N}개 시나리오, {M}개 action
+
+진행할 시나리오 번호를 선택하세요 (예: 1,3 또는 all):
+```
+
+**Wait for user response.** Then:
+- `all` → proceed with all scenarios
+- `1,3` → keep only selected scenarios, remove the rest from the plan
+- User may also give feedback like "2번은 빼고" → adjust accordingly
+
+Update the sprint plan to include only the selected actions before proceeding.
 
 ### Phase 2: Sprint Loop
 
 For each sprint in the plan:
 
-#### Step 2a: Generator
+#### Step 2a: Generator (per action)
 
-Spawn the **action-creator:generator** agent:
+For each **action** in the sprint's action list, spawn the **action-creator:generator** agent:
 
 ```
 Agent(subagent_type="action-creator:generator")
@@ -80,22 +108,28 @@ Agent(subagent_type="action-creator:generator")
 
 **Prompt the Generator with:**
 - The site name, entry URL
-- The sprint's scenarios (names, flow descriptions, expected actions, inputs, outputs)
+- The **single action** definition from the plan, including:
+  - `name`, `description`, `entry_url`, `type`
+  - `params` and `output` definitions
+  - `discovered_elements` and `snapshot_excerpt` (if available from Planner)
 - The sprint's success criteria
 - Instruct it to read `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt` for the actions.yaml format
-- Instruct it to write `actions.yaml` in the sprint working directory
+- Instruct it to write/append to `actions.yaml` in the sprint working directory
 
 **If this is a RETRY** (Evaluator found failures):
 - Include the Evaluator's feedback: which actions failed, error details, fix hints
 - Include the previous actions.yaml content so Generator can fix specific actions
 - Instruct Generator to preserve passing actions and only fix failed ones
 
+**Key difference from scenario-level:** Each Generator invocation focuses on ONE atomic action. The Planner has already decomposed scenarios, so Generator does not need to decide what to record — only how to record it.
+
 #### Step 2b: Validate Generator Output
 
-After Generator completes:
+After all actions in the sprint are generated:
 1. Read the generated `actions.yaml`.
 2. Basic checks (is it valid YAML? does it have actions with steps?).
-3. If empty or invalid → log error, skip to next sprint.
+3. Verify each planned action has a corresponding entry.
+4. If empty or invalid → log error, skip to next sprint.
 
 #### Step 2c: Evaluator
 
@@ -109,6 +143,7 @@ Agent(subagent_type="action-creator:evaluator")
 - The site name, entry URL
 - The sprint's success criteria
 - The content of `actions.yaml` to test
+- The **action definitions from the plan** (params, expected output) so Evaluator can verify output structure
 - Instruct it to write `evaluation.yaml` in the sprint working directory
 
 #### Step 2d: Check Evaluation Results
@@ -123,9 +158,9 @@ After Evaluator completes:
 **If some FAIL:**
 - Check: are the failures identical to the previous attempt?
   - **Yes (no progress):** Log the stuck failures. Move to next sprint with partial results.
-  - **No (progress made):** Go back to Step 2a with Evaluator feedback (RETRY).
+  - **No (progress made):** Re-run Generator ONLY for the failed actions (Step 2a), then re-evaluate (RETRY).
 
-**Budget rule:** Maximum 3 attempts per sprint (1 initial + 2 retries). After 3 attempts, take whatever passed and move on.
+**Budget rule:** Maximum 3 attempts per action (1 initial + 2 retries). After 3 attempts, take whatever passed and move on.
 
 ### Phase 3: Merge & Report
 

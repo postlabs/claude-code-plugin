@@ -22,8 +22,46 @@ action_name:
     - action: fill
       selector: ...
       value: $param_name                  # $-prefixed = parameter reference
+  output:                                 # Optional: what this action produces
+    type: list                            # text | list | table
+    fields: [field1, field2]              # Field names in the output
   verified_with:                          # Optional: test case metadata
     test_key: "test_value"
+```
+
+### Output Field
+
+Actions that produce data (extract_text, extract_list) SHOULD define an `output` field so other actions can reference them:
+
+- `text` — single value (e.g., a price, a name)
+- `list` — repeating items (e.g., stock list, news list)
+- `table` — structured rows with named columns
+
+```yaml
+# Example: action that produces a list
+list_top_gainers:
+  description: "급등주 상위 종목 목록 추출"
+  output:
+    type: list
+    fields: [stock_name, price, change_rate]
+  steps:
+    - action: extract_list
+      # ...
+
+# Example: action that consumes output via param
+get_stock_news:
+  description: "특정 종목의 뉴스 목록 추출"
+  params:
+    stock_name:
+      type: string
+      required: true
+  output:
+    type: list
+    fields: [title, date, source]
+  steps:
+    - action: fill
+      value: $stock_name
+      # ...
 ```
 
 ### Step Types
