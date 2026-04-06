@@ -45,7 +45,16 @@ Extract `site_name` from the URL (e.g., `https://www.naver.com` → `naver`).
 ### Phase 0: Preparation
 
 1. Create the output directory.
-2. Note the site name and entry URL.
+2. **Start Chrome with CDP** — Run this command to launch Chrome with remote debugging:
+   ```bash
+   start chrome --remote-debugging-port=9222 --user-data-dir="C:/tmp/chrome-cdp" --no-first-run
+   ```
+   Then wait 3 seconds for Chrome to start, and verify CDP is reachable:
+   ```bash
+   curl -s http://127.0.0.1:9222/json/version
+   ```
+   If the curl returns JSON, Chrome CDP is ready. If it fails, warn the user and stop.
+3. Note the site name and entry URL.
 
 ### Phase 1: Planner
 
