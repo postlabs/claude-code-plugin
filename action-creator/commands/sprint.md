@@ -190,6 +190,16 @@ Agent(subagent_type="action-creator:generator", description="Generator: action_1
 - Instruct it to read `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt` for the actions.yaml format
 - Instruct it to write to `{working_dir}/actions/{action_name}.yaml`
 - **CRITICAL:** The agent must use `target_ref` with ref IDs from the snapshot file, NOT hand-written selectors
+- **CRITICAL:** The agent must include a `verified_with` field in the action YAML with the actual test parameter values used during snapshot capture. The validator uses these values for URL substitution and replay testing. Example:
+  ```yaml
+  get_stock_price:
+    params:
+      stock_code:
+        type: string
+        required: true
+    verified_with:
+      stock_code: "A005930"
+  ```
 
 #### Step 2c: Hydrate selectors (CODE — deterministic)
 

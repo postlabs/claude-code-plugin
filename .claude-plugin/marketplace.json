@@ -76,7 +76,7 @@
       "name": "action-creator",
       "source": "./action-creator",
       "description": "Sprint-based multi-agent pipeline for website automation action generation",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "category": "workflow"
     }
   ]

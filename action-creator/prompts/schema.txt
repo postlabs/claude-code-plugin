@@ -25,8 +25,8 @@ action_name:
   output:                                 # Optional: what this action produces
     type: list                            # text | list | table
     fields: [field1, field2]              # Field names in the output
-  verified_with:                          # Optional: test case metadata
-    test_key: "test_value"
+  verified_with:                          # REQUIRED: actual test values used during snapshot
+    param_name: "actual_value"            # The validator substitutes these into URLs and selectors
 ```
 
 ### Output Field
