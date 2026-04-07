@@ -94,9 +94,14 @@ class _SimpleBrowser:
         result = await self._adapter.call_tool("browser_evaluate", {"expression": expression})
         return self._extract_text(result)
 
-    async def scroll(self, x: int = 0, y: int = 0) -> None:
+    async def scroll(self, direction: str = "down", distance: int = 0, steps: int = 1, x: int = 0, y: int = 0) -> None:
+        if direction or distance:
+            dy = distance if direction == "down" else -distance if direction == "up" else 0
+            dx = distance if direction == "right" else -distance if direction == "left" else 0
+        else:
+            dx, dy = x, y
         await self._adapter.call_tool("browser_evaluate", {
-            "expression": f"window.scrollBy({x}, {y})"
+            "function": f"() => window.scrollBy({dx}, {dy})"
         })
 
     async def close_tab(self) -> None:

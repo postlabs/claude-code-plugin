@@ -71,21 +71,13 @@ Each step has an `action` field and type-specific fields:
 #### click — Click an element
 ```yaml
 - action: click
-  selector:
-    selectors:
-      - strategy: role_name
-        value: 'button:"Submit"'
-        priority: 0
+  target_ref: e50                         # ref of the button from snapshot
 ```
 
 #### fill — Type text into an input
 ```yaml
 - action: fill
-  selector:
-    selectors:
-      - strategy: role_name
-        value: 'textbox:"Search"'
-        priority: 0
+  target_ref: e42                         # ref of the textbox from snapshot
   value: $query                           # $param_name or {{ faker.email }} etc.
 ```
 
@@ -101,11 +93,7 @@ If you are filling a form field that requires unique data every time (like an em
 #### select — Select a dropdown option
 ```yaml
 - action: select
-  selector:
-    selectors:
-      - strategy: role_name
-        value: 'combobox:"Category"'
-        priority: 0
+  target_ref: e100                        # ref of the combobox from snapshot
   value: $category
 ```
 
@@ -131,32 +119,20 @@ If you are filling a form field that requires unique data every time (like an em
 #### extract_text — Extract text from an element
 ```yaml
 - action: extract_text
-  selector:
-    selectors:
-      - strategy: role_name
-        value: 'heading:"Page Title"'
-        priority: 0
+  target_ref: e154                        # ref of the element to extract text from
 ```
 
 #### extract_list — Extract repeating items
 ```yaml
 - action: extract_list
-  selector:
-    selectors:
-      - strategy: role_name
-        value: 'listitem'
-        priority: 0
+  target_ref: e801                        # ref of the CONTAINER (list, table, etc.)
   limit: 20                               # Optional: max items
 ```
 
 #### wait — Wait for an element to appear or a condition to be met
 ```yaml
 - action: wait
-  selector:                               # Wait for element (optional)
-    selectors:
-      - strategy: role_name
-        value: 'heading:"Results"'
-        priority: 1
+  target_ref: e747                        # ref of the element to wait for
   timeout: 5000                           # Max wait in ms (default: 5000)
   state: visible                          # visible | hidden | attached (default: visible)
 ```
@@ -173,14 +149,8 @@ Many sites use custom dropdowns (`<div>` + `<a>` lists) instead of native `<sele
 This step opens the trigger element, then clicks the matching option by text.
 ```yaml
 - action: select_custom
-  trigger:                                # Element that opens the dropdown
-    selectors:
-      - strategy: role_name
-        value: 'link:"성별"'
-        priority: 1
-      - strategy: tree_path
-        value: 'generic:"Fortune" > link:"성별"'
-        priority: 2
+  trigger:
+    target_ref: e200                      # ref of the trigger element
   option_text: $gender                    # Text of the option to select ($param or literal)
 ```
 
@@ -206,76 +176,46 @@ Common cases: custom scroll wheels, canvas-based UIs, programmatic state changes
 - Keep scripts minimal — one DOM operation per evaluate step
 - Prefer standard actions (click, fill, select_custom) over evaluate when possible
 
-### Selector Format
+### Selector Format (target_ref)
 
-Selectors use a multi-strategy approach with fallbacks. **Each selector MUST have at least 2-3 strategies** for resilience.
-
-There are **7 strategy types** organized by priority:
-
-**Priority 1 (direct identification):**
-- `role_name` — ARIA role + accessible name. Format: `role:"name"`. Always include this.
-- `content` — Sibling text disambiguation. Used when role_name is non-unique. Include `context_text` field with nearby text.
-
-**Priority 2 (structural/positional):**
-- `tree_path` — Ancestor chain path using meaningful (non-generic) roles. Format: `ancestor > ... > target`. Max 3 ancestors.
-- `tree_path_index` — Index-based tree path using sibling indices. Resilient to dynamic content. Format: `generic[0] > generic[2] > button[0]`.
-- `relative_index` — Section heading + positional index within that section. Format: `section(heading:"News") > link[0]`.
-- `relative_index_grouped` — Repeating group container + positional index. For items in lists/cards/grids. Format: `section(heading:"News") > generic[0] > link[0]` or `group(main > generic[0]) > generic[0] > link[0]`.
-
-**Priority 3 (fallback):**
-- `relative` — Nearest landmark-relative position. Format: `near(navigation:"Main") > button:"Submit"`. Last resort.
+**You do NOT write selectors by hand.** Instead, specify `target_ref` — the `ref` attribute
+of the target element from the page snapshot. A post-processing step will automatically
+generate multi-strategy selectors using `generate_selector_set()`.
 
 ```yaml
-# Example: button with 3 strategies (recommended minimum)
-selector:
-  selectors:
-    - strategy: role_name
-      value: 'button:"Login"'
-      priority: 1
-    - strategy: tree_path
-      value: 'form:"Login Form" > button:"Login"'
-      priority: 2
-    - strategy: relative
-      value: 'near(main:"Content") > button:"Login"'
-      priority: 3
+# For every step that targets an element, use target_ref:
+- action: click
+  target_ref: e43              # ref from snapshot: button "검색"
 
-# Example: non-unique element needs content strategy
-selector:
-  selectors:
-    - strategy: role_name
-      value: 'link:"More"'
-      priority: 1
-    - strategy: content
-      value: 'link:"More"'
-      context_text: "News Section"
-      priority: 1
-    - strategy: tree_path
-      value: 'region:"News" > link:"More"'
-      priority: 2
-    - strategy: relative_index
-      value: 'section(heading:"News") > link[0]'
-      priority: 2
+- action: fill
+  target_ref: e42              # ref from snapshot: textbox "검색"
+  value: $query
 
-# Example: item in a repeating list
-selector:
-  selectors:
-    - strategy: role_name
-      value: 'listitem'
-      priority: 1
-    - strategy: tree_path_index
-      value: 'list[0] > listitem[0]'
-      priority: 2
-    - strategy: relative_index_grouped
-      value: 'section(heading:"Results") > generic[0] > listitem[0]'
-      priority: 2
+- action: extract_list
+  target_ref: e801             # ref from snapshot: list (상품 목록 container)
+  limit: 36
+
+- action: extract_text
+  target_ref: e154             # ref from snapshot: heading "상품명"
+
+- action: wait
+  target_ref: e747             # ref from snapshot: heading "검색결과"
+  timeout: 5000
 ```
 
-**Rules for generating selectors:**
-1. ALWAYS include `role_name` (priority 1)
-2. Add `tree_path` or `tree_path_index` (priority 2) as structural fallback
-3. Add `relative` or `relative_index` (priority 3 or 2) when possible
-4. Use `content` only when `role_name` matches multiple elements
-5. Use `relative_index_grouped` for items inside repeating containers (lists, grids, card layouts)
+**Rules for choosing target_ref:**
+1. Find the target element in the snapshot by its role, name, and position
+2. Use the `ref=XXXX` attribute from the snapshot as target_ref value
+3. For `extract_list`, prefer the **container** (e.g., `list`, `table`) over individual items (`listitem`, `row`) — containers produce better selectors
+4. For `click`, `fill`, `select` — target the interactive element directly
+5. For `wait` — target the element whose appearance confirms page readiness
+
+**Steps that do NOT use target_ref** (no element targeting):
+- `navigate` — uses `url` field
+- `press` — uses `key` field
+- `scroll` — uses `direction` / `distance` fields
+- `handle_dialog` — uses `accept` field
+- `evaluate` — uses `script` field
 
 ### Parameter References & Abstraction (CRITICAL)
 
@@ -337,32 +277,12 @@ search_inbox:
       description: "Search keyword"
   steps:
     - action: fill
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'textbox:"Search mail"'
-            priority: 1
-          - strategy: tree_path
-            value: 'search:"Mail Search" > textbox:"Search mail"'
-            priority: 2
-          - strategy: relative
-            value: 'near(banner:"Header") > textbox:"Search mail"'
-            priority: 3
+      target_ref: e42              # textbox "Search mail"
       value: $query
     - action: press
       key: Enter
     - action: extract_list
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'listitem'
-            priority: 1
-          - strategy: tree_path
-            value: 'list:"Messages" > listitem'
-            priority: 2
-          - strategy: relative_index_grouped
-            value: 'section(heading:"Inbox") > generic[0] > listitem[0]'
-            priority: 2
+      target_ref: e200             # list "Messages" (container, not listitem)
       limit: 20
 
 list_inbox:
@@ -371,17 +291,7 @@ list_inbox:
   created_at: "2026-04-02T12:00:00Z"
   steps:
     - action: extract_list
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'listitem'
-            priority: 1
-          - strategy: tree_path_index
-            value: 'generic[0] > list[0] > listitem[0]'
-            priority: 2
-          - strategy: relative_index
-            value: 'section(heading:"Inbox") > listitem[0]'
-            priority: 2
+      target_ref: e200             # list "Messages" (container)
       limit: 50
 
 submit_compose:
@@ -403,56 +313,18 @@ submit_compose:
       description: "Email body"
   steps:
     - action: click
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'button:"Compose"'
-            priority: 1
-          - strategy: tree_path
-            value: 'banner:"Toolbar" > button:"Compose"'
-            priority: 2
+      target_ref: e10              # button "Compose"
     - action: fill
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'combobox:"To"'
-            priority: 1
-          - strategy: tree_path
-            value: 'dialog:"New Message" > combobox:"To"'
-            priority: 2
+      target_ref: e55              # combobox "To"
       value: $to
     - action: fill
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'textbox:"Subject"'
-            priority: 1
-          - strategy: tree_path
-            value: 'dialog:"New Message" > textbox:"Subject"'
-            priority: 2
+      target_ref: e60              # textbox "Subject"
       value: $subject
     - action: fill
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'textbox:"Message Body"'
-            priority: 1
-          - strategy: tree_path
-            value: 'dialog:"New Message" > textbox:"Message Body"'
-            priority: 2
+      target_ref: e65              # textbox "Message Body"
       value: $body
     - action: click
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'button:"Send"'
-            priority: 1
-          - strategy: tree_path
-            value: 'dialog:"New Message" > button:"Send"'
-            priority: 2
-          - strategy: relative
-            value: 'near(dialog:"New Message") > button:"Send"'
-            priority: 3
+      target_ref: e70              # button "Send"
 ```
 
 ### Inline Service Example (Custom Widget)
@@ -483,28 +355,15 @@ check_fortune:
       default: "1"
       description: "출생 일 (e.g., 15)"
   steps:
-    # 1. 검색으로 운세 인라인 서비스 진입
     - action: navigate
       url: "https://search.naver.com/search.naver?query=오늘의+운세"
-    # 2. 성별 선택 (커스텀 드롭다운)
     - action: select_custom
       trigger:
-        selectors:
-          - strategy: role_name
-            value: 'link:"성별"'
-            priority: 1
-          - strategy: tree_path
-            value: 'heading:"운세" > link:"성별"'
-            priority: 2
+        target_ref: e300           # link "성별"
       option_text: $gender
-    # 3. 생년월일 날짜 선택기 열기
     - action: click
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'link:"생년월일"'
-            priority: 1
-    # 4. 년도 선택 (커스텀 스크롤 휠 — evaluate 필요)
+      target_ref: e310             # link "생년월일"
+    # Custom scroll wheel — evaluate는 target_ref 대신 script 사용
     - action: evaluate
       script: |
         const dp = document.querySelector('.pop_select_box._dateCustomSelect');
@@ -515,7 +374,6 @@ check_fortune:
         }
       description: "Select year in date picker scroll wheel"
       params_used: [year]
-    # 5. 월 선택
     - action: evaluate
       script: |
         const dp = document.querySelector('.pop_select_box._dateCustomSelect');
@@ -526,7 +384,6 @@ check_fortune:
         }
       description: "Select month in date picker scroll wheel"
       params_used: [month]
-    # 6. 일 선택
     - action: evaluate
       script: |
         const dp = document.querySelector('.pop_select_box._dateCustomSelect');
@@ -537,34 +394,15 @@ check_fortune:
         }
       description: "Select day in date picker scroll wheel"
       params_used: [day]
-    # 7. 운세 확인하기 버튼 클릭
     - action: click
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'button:"운세 확인하기"'
-            priority: 1
-    # 8. 다이얼로그 처리 (성별 미선택 등 validation alert)
+      target_ref: e350             # button "운세 확인하기"
     - action: handle_dialog
       accept: true
-    # 9. 운세 결과 대기
     - action: wait
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'heading:"운세의 총운은"'
-            priority: 1
+      target_ref: e400             # heading "운세의 총운은"
       timeout: 5000
-    # 10. 운세 결과 추출
     - action: extract_text
-      selector:
-        selectors:
-          - strategy: role_name
-            value: 'paragraph'
-            priority: 1
-          - strategy: tree_path
-            value: 'heading:"운세" > paragraph'
-            priority: 2
+      target_ref: e410             # paragraph (운세 결과 텍스트)
 ```
 
 ### site.yaml Schema

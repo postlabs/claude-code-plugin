@@ -293,33 +293,54 @@ def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> Selector | N
             sibling_idx += 1
 
     # Build ancestor path: walk up from parent, include generics with index.
-    # Always include at least one meaningful (non-generic) ancestor as anchor,
-    # so resolve can find the starting point in the tree.
-    path_parts: list[str] = []
-    has_meaningful = False
+    # The path must be resolvable from root — the first (topmost) segment
+    # must be findable in root.children. We keep walking up until we reach
+    # either a meaningful (non-generic) anchor OR a node that is a direct
+    # child of root (which the resolver can find).
+    # Build full ancestor path from target up to a root child, then
+    # compress by skipping generic[0] segments (only-child-of-role).
+    raw_parts: list[tuple[str, bool]] = []  # (segment_str, is_skippable)
+    root_child_refs = {c.ref for c in tree.children if c.ref}
+    reached_root = False
     for i, anc in enumerate(ancestors):
-        if len(path_parts) >= 3 and has_meaningful:
-            break
         if anc.role in _GENERIC_ROLES:
-            # Include generic with positional index among its parent's children
+            # Compute index among parent's same-role children
             if i + 1 < len(ancestors):
                 grandparent = ancestors[i + 1]
-                gen_idx = 0
-                for child in grandparent.children:
+            else:
+                grandparent = tree
+            gen_idx = 0
+            same_role_count = 0
+            for child in grandparent.children:
+                if child.role == anc.role:
                     if child is anc or (child.ref and child.ref == anc.ref):
                         break
-                    if child.role == anc.role:
-                        gen_idx += 1
-                path_parts.append(f"{anc.role}[{gen_idx}]")
+                    gen_idx += 1
+                    same_role_count += 1
+            same_role_count += 1  # include self
+            # Count total same-role siblings to decide if skippable
+            total_same = sum(1 for c in grandparent.children if c.role == anc.role)
+            is_root_child = anc.ref in root_child_refs
+            skippable = (gen_idx == 0 and total_same == 1 and not is_root_child)
+            raw_parts.append((f"{anc.role}[{gen_idx}]", skippable))
         else:
-            has_meaningful = True
             if anc.name:
-                path_parts.append(f'{anc.role}:"{_esc(anc.name)}"')
+                raw_parts.append((f'{anc.role}:"{_esc(anc.name)}"', False))
             else:
-                path_parts.append(anc.role)
+                raw_parts.append((anc.role, False))
 
-    if not path_parts or not has_meaningful:
+        if anc.ref in root_child_refs:
+            reached_root = True
+            break
+
+    if not raw_parts:
         return None
+
+    # Compress: drop skippable generic[0] segments, keep at most 5 total
+    path_parts = [seg for seg, skip in raw_parts if not skip]
+    # If all were skippable, keep at least the root child
+    if not path_parts and raw_parts:
+        path_parts = [raw_parts[-1][0]]
 
     # Reverse: ancestors are bottom-up, path should be top-down
     path_parts.reverse()
@@ -1036,7 +1057,6 @@ def _resolve_tree_path_index(tree: SnapshotNode, sel: Selector) -> SnapshotNode 
             # Find Nth child with this role under current scope
             found = None
             count = 0
-            children_roles = [(c.role, (c.name or "")[:30]) for c in scope.children[:10]]
             for child in scope.children:
                 if child.role == target_role:
                     if count == target_idx:

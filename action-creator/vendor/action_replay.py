@@ -201,56 +201,34 @@ async def _replay_extract_list(
     step_idx: int,
 ) -> Any:
     """Extract structured list data from an element."""
-    import json as _json
-    from ..core.discovery import detect_repeating_groups, score_and_rank
-    from ..core.snapshot_tree import flatten_children
-    from ..core.selector import resolve_in_flat
+    from .snapshot_tree import walk_tree
+    from .generic_tools import _collect_text
 
     node = await _resolve_step_element(browser, step, step_idx, params=params)
     if isinstance(node, ActionResult):
         return node
 
-    groups = detect_repeating_groups(node)
-    if not groups:
-        # Fallback: treat children as items
-        items = [c for c in node.children if c.role and c.ref]
-        rows = []
-        for item in items:
-            row: dict[str, Any] = {}
-            if item.name:
-                row["name"] = item.name
-            flat = flatten_children(item)
-            for j, child in enumerate(flat):
-                if child.name:
-                    row[f"{child.role}_{j}"] = child.name
-            if row:
-                rows.append(row)
-        return rows
-
-    ranked = score_and_rank(groups)
-    group = ranked[0]
-
+    # Lightweight extract_list: flatten children and collect named fields.
+    # Does not depend on core.discovery (detect_repeating_groups / score_and_rank)
+    # which is unavailable in the vendored subset.
+    items = [c for c in node.children if c.role and c.ref]
     rows = []
-    for item in group.items:
-        row = {}
+    for item in items:
+        row: dict[str, Any] = {}
         if item.name:
             row["name"] = item.name
-        flat = flatten_children(item)
-        for fd in group.fields:
-            spec: dict[str, Any] = {"role": fd.role}
-            if fd.name:
-                spec["name"] = fd.name
-            matched = resolve_in_flat(flat, spec)
-            row[fd.key] = matched.name if matched else None
-        for fd in group.text_fields:
-            generics = [n for n in flat if n.is_named_generic]
-            if generics:
-                pos = fd.position or "last"
-                row[fd.key] = generics[0].name if pos == "first" else generics[-1].name
+        for child in walk_tree(item):
+            if child is item:
+                continue
+            if child.name:
+                key = f"{child.role}_{child.ref}" if child.ref else child.role
+                row[key] = child.name
+        if not row and item.name:
+            row["text"] = _collect_text(item)
         if row:
             rows.append(row)
 
-    # Apply limit: check step dict first, then params
+    # Apply limit
     limit = None
     if step.get("limit"):
         limit = _resolve_param(step["limit"], params)
@@ -314,7 +292,7 @@ def _find_text_container(
     differences between JS textContent and AX tree text.
     """
     from .generic_tools import _collect_text
-    from ..core.snapshot_tree import walk_tree
+    from .snapshot_tree import walk_tree
 
     from .logger_stub import logger
 
@@ -722,7 +700,7 @@ async def _replay_select_custom(
         )
 
     tree = await browser.snapshot()
-    from ..core.snapshot_tree import walk_tree
+    from .snapshot_tree import walk_tree
     for node in walk_tree(tree):
         if node.role in ("option", "menuitem", "listitem", "link") and node.ref:
             if node.name and option_text in node.name:
