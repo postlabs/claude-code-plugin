@@ -163,7 +163,8 @@ def generate_selector_set(
     _add_if_valid(_gen_relative_index(node, tree))
 
     # 2d. tree_path_index (structure + position, no name dependency)
-    _add_if_valid(_gen_tree_path_index(node, tree))
+    for tpi_sel in _gen_tree_path_index(node, tree):
+        _add_if_valid(tpi_sel)
 
     # 3. relative (landmark + name)
     _add_if_valid(_gen_relative(node, tree))
@@ -264,16 +265,17 @@ def _gen_tree_path(node: SnapshotNode, tree: SnapshotNode) -> Selector | None:
     )
 
 
-def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> Selector | None:
-    """Generate index-based tree_path selector. Priority 2.
+def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> list[Selector]:
+    """Generate index-based tree_path selectors. Priority 2.
+
+    Returns up to 2 selectors:
+    - Full path (all ancestors included) — always resolves correctly
+    - Compressed path (generic[0] only-children skipped) — shorter, may or may not resolve
+
+    Both go through _add_if_valid; only those that resolve are kept.
 
     Uses structural position (sibling index) instead of name.
     Resilient to dynamic name changes (prices, timestamps).
-
-    Includes generic parents with positional index to keep scope narrow:
-      main > generic[5] > link[0]
-    rather than skipping generics which produces overly broad paths:
-      main > link[47]
 
     Example: dialog > option[0]  (first option inside dialog)
     """
@@ -292,16 +294,13 @@ def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> Selector | N
         if child.role == node.role:
             sibling_idx += 1
 
-    # Build ancestor path: walk up from parent, include generics with index.
-    # The path must be resolvable from root — the first (topmost) segment
-    # must be findable in root.children. We keep walking up until we reach
-    # either a meaningful (non-generic) anchor OR a node that is a direct
-    # child of root (which the resolver can find).
-    # Build full ancestor path from target up to a root child, then
-    # compress by skipping generic[0] segments (only-child-of-role).
+    # Build ancestor path: walk up from parent to a root child.
+    # Generate both full and compressed paths. The compressed path
+    # skips generic[0] only-children for brevity, but may not resolve
+    # if the resolver can't skip intermediate nodes. Both go through
+    # _add_if_valid — only those that actually resolve are kept.
     raw_parts: list[tuple[str, bool]] = []  # (segment_str, is_skippable)
     root_child_refs = {c.ref for c in tree.children if c.ref}
-    reached_root = False
     for i, anc in enumerate(ancestors):
         if anc.role in _GENERIC_ROLES:
             # Compute index among parent's same-role children
@@ -310,15 +309,11 @@ def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> Selector | N
             else:
                 grandparent = tree
             gen_idx = 0
-            same_role_count = 0
             for child in grandparent.children:
                 if child.role == anc.role:
                     if child is anc or (child.ref and child.ref == anc.ref):
                         break
                     gen_idx += 1
-                    same_role_count += 1
-            same_role_count += 1  # include self
-            # Count total same-role siblings to decide if skippable
             total_same = sum(1 for c in grandparent.children if c.role == anc.role)
             is_root_child = anc.ref in root_child_refs
             skippable = (gen_idx == 0 and total_same == 1 and not is_root_child)
@@ -330,30 +325,46 @@ def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> Selector | N
                 raw_parts.append((anc.role, False))
 
         if anc.ref in root_child_refs:
-            reached_root = True
             break
 
     if not raw_parts:
         return None
 
-    # Compress: drop skippable generic[0] segments, keep at most 5 total
-    path_parts = [seg for seg, skip in raw_parts if not skip]
-    # If all were skippable, keep at least the root child
-    if not path_parts and raw_parts:
-        path_parts = [raw_parts[-1][0]]
+    target_seg = f"{node.role}[{sibling_idx}]"
+    has_skippable = any(skip for _, skip in raw_parts)
 
-    # Reverse: ancestors are bottom-up, path should be top-down
-    path_parts.reverse()
-    path_parts.append(f"{node.role}[{sibling_idx}]")
+    # Full path (no skipping) — always resolves correctly
+    full_parts = [seg for seg, _ in raw_parts]
+    full_parts.reverse()
+    full_parts.append(target_seg)
 
-    value = " > ".join(path_parts)
+    results: list[Selector] = []
 
-    return Selector(
+    results.append(Selector(
         strategy="tree_path_index",
-        value=value,
+        value=" > ".join(full_parts),
         priority=2,
         unique=True,
-    )
+    ))
+
+    # Compressed path (skip generic[0] only-children) — shorter but may not resolve
+    if has_skippable:
+        compressed_parts = [seg for seg, skip in raw_parts if not skip]
+        if not compressed_parts:
+            compressed_parts = [raw_parts[-1][0]]
+        compressed_parts.reverse()
+        compressed_parts.append(target_seg)
+        compressed_value = " > ".join(compressed_parts)
+        # Only add if different from full path
+        if compressed_value != " > ".join(full_parts):
+            results.append(Selector(
+                strategy="tree_path_index",
+                value=compressed_value,
+                priority=2,
+                unique=True,
+            ))
+
+    return results
 
 
 def _gen_relative(node: SnapshotNode, tree: SnapshotNode) -> Selector | None:
