@@ -624,13 +624,16 @@ def _resolve_param(value: str, params: dict[str, Any]) -> str | None:
 
     Returns None if a $param is referenced but not provided.
     """
+    from .template import resolve_templates
+
+    # Pure $param reference (entire value is a single param)
     if isinstance(value, str) and value.startswith("$"):
         param_name = value[1:]
         if param_name in params:
             return str(params[param_name])
         return None
 
-    # Handle {{ template }} variables
+    # Handle {{ faker.* }} and {{ date.today }} special templates
     if isinstance(value, str) and "{{" in value:
         import re
         def replacer(m: re.Match) -> str:
@@ -651,13 +654,12 @@ def _resolve_param(value: str, params: dict[str, Any]) -> str | None:
             elif expr == "date.today":
                 from datetime import date
                 return date.today().isoformat()
-            elif params and expr in params:
-                return str(params[expr])
-            return m.group(0)
+            return m.group(0)  # leave unresolved for resolve_templates below
 
-        return re.sub(r"\{\{([^}]+)\}\}", replacer, value)
+        value = re.sub(r"\{\{([^}]+)\}\}", replacer, value)
 
-    return value
+    # Resolve all param template formats: {{key}}, {key}, $key
+    return resolve_templates(value, params)
 
 
 async def _get_tab_list(browser: Any) -> list[tuple[int, str]]:

@@ -141,7 +141,20 @@ playwright-cli -s=gen attach --cdp=http://127.0.0.1:9222
 For each action:
 1. Navigate to the action's entry URL (with test params substituted)
    using the Playwright MCP `browser_navigate` tool
-2. Wait 2-3 seconds for page load
+2. Wait for DOM stability using `browser_evaluate`:
+   ```javascript
+   await new Promise(resolve => {
+     let prev = 0;
+     const check = () => {
+       const curr = document.querySelectorAll('*').length;
+       if (curr === prev && curr > 50) resolve();
+       else { prev = curr; setTimeout(check, 1000); }
+     };
+     check();
+   });
+   ```
+   This polls DOM element count every 1s. When it stops changing, the page is
+   fully rendered. Works for any page type — no fixed sleep, no page-specific threshold.
 3. Save snapshot using `browser_snapshot(filename="{working_dir}/snapshots/{action_name}.yml")`
 
 After all snapshots are captured, close Chrome:

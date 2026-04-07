@@ -39,6 +39,7 @@ from vendor.selector import (
 )
 from vendor.snapshot_tree import parse_snapshot_tree, walk_tree
 from vendor.action_replay import replay_action
+from vendor.template import resolve_templates, resolve_deep
 
 
 # ── Browser connection ──
@@ -103,6 +104,20 @@ class _SimpleBrowser:
         await self._adapter.call_tool("browser_evaluate", {
             "function": f"() => window.scrollBy({dx}, {dy})"
         })
+
+    async def wait_for_stable(self, max_checks: int = 10, interval: float = 1.0) -> None:
+        """Wait until DOM element count stabilizes (page fully rendered)."""
+        prev = 0
+        for _ in range(max_checks):
+            await asyncio.sleep(interval)
+            try:
+                text = await self.evaluate("document.querySelectorAll('*').length")
+                curr = int(text.strip())
+            except Exception:
+                continue
+            if curr == prev and curr > 50:
+                return
+            prev = curr
 
     async def close_tab(self) -> None:
         pass  # Not needed for validation
@@ -342,15 +357,7 @@ async def run_full_replay(
 
 
 def _resolve_templates(spec: Any, params: dict[str, Any]) -> Any:
-    if isinstance(spec, str):
-        for key, val in params.items():
-            spec = spec.replace(f"{{{{{key}}}}}", str(val))
-        return spec
-    if isinstance(spec, dict):
-        return {k: _resolve_templates(v, params) for k, v in spec.items()}
-    if isinstance(spec, list):
-        return [_resolve_templates(item, params) for item in spec]
-    return spec
+    return resolve_deep(spec, params)
 
 
 def build_test_params(action_def: dict[str, Any]) -> dict[str, Any]:
@@ -404,12 +411,11 @@ async def validate_action_file(
         # Navigate to entry URL
         url = action_def.get("url", "")
         if url and params:
-            for key, val in params.items():
-                url = url.replace(f"{{{{{key}}}}}", str(val))
+            url = resolve_templates(url, params)
 
         if url:
             await browser.navigate(url)
-            await asyncio.sleep(2)
+            await browser.wait_for_stable()
 
         # Step-by-step selector validation
         step_validation = await validate_action(browser, action_def, params)
@@ -417,7 +423,7 @@ async def validate_action_file(
         # Full replay (navigate again for clean state)
         if url:
             await browser.navigate(url)
-            await asyncio.sleep(2)
+            await browser.wait_for_stable()
 
         replay_result = await run_full_replay(browser, action_def, params)
 
