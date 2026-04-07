@@ -114,51 +114,98 @@ Display the scenario list to the user in this format:
 
 Update the action list to include only selected actions.
 
-### Phase 2: Generator (all actions in parallel)
+### Phase 2: Generator (3-step: snapshot → ref selection → hydration)
+
+The Generator phase splits into 3 deterministic steps. The snapshot file is the
+single source of truth shared between all steps — ref mismatch is structurally impossible.
+
+```
+Step 2a: CODE  → navigate + browser_snapshot(filename=...) → snapshot files saved
+Step 2b: LLM   → read each snapshot file, pick ref IDs → write action YAML (target_ref)
+Step 2c: CODE  → selector_hydrator.py --action X --snapshot Y → final YAML with selectors
+```
 
 Let N = number of selected actions.
 
-#### Step 2a: Launch N Chrome instances
+#### Step 2a: Capture snapshots (CODE)
+
+Launch ONE Chrome, navigate to each action's entry URL, and save a snapshot file.
+Substitute test parameter values into the URL (extract examples from param descriptions).
 
 ```bash
-for i in $(seq 0 $((N-1))); do
-  start chrome --remote-debugging-port=$((9222+i)) --user-data-dir="C:/tmp/chrome-cdp-$i" --no-first-run
-done
+start chrome --remote-debugging-port=9222 --user-data-dir="C:/tmp/chrome-cdp-0" --no-first-run
 sleep 3
-for i in $(seq 0 $((N-1))); do
-  playwright-cli -s=gen_$i attach --cdp=http://127.0.0.1:$((9222+i))
-done
+playwright-cli -s=gen attach --cdp=http://127.0.0.1:9222
 ```
 
-#### Step 2b: Spawn all Generators in parallel
+For each action:
+1. Navigate to the action's entry URL (with test params substituted)
+   using the Playwright MCP `browser_navigate` tool
+2. Wait 2-3 seconds for page load
+3. Save snapshot using `browser_snapshot(filename="{working_dir}/snapshots/{action_name}.yml")`
 
-Spawn **all Generator agents in a single message**:
+After all snapshots are captured, close Chrome:
+```bash
+playwright-cli -s=gen close
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrome-cdp*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+```
 
+Verify all snapshot files exist before proceeding.
+
+#### Step 2b: Select refs and write action YAMLs (LLM — you)
+
+For each action, read its snapshot file and the plan action definition.
+Then write the action YAML with `target_ref` values (NOT hand-written selectors).
+
+Read the schema format from `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt`.
+
+You can process all actions **sequentially** (read snapshot → write YAML → next)
+or spawn **parallel sub-agents** (each reads its own snapshot file — no browser needed).
+
+**If using sub-agents:** Spawn all Generator agents in a single message:
 ```
 Agent(subagent_type="action-creator:generator", description="Generator: action_0")
 Agent(subagent_type="action-creator:generator", description="Generator: action_1")
 ...
-Agent(subagent_type="action-creator:generator", description="Generator: action_N-1")
 ```
 
 **Prompt each Generator with:**
 - The site name, entry URL
-- **Session name: `gen_0`** (or `gen_1`, `gen_2`, ... matching the index)
-- The **single action** definition from the plan (name, description, entry_url, type, params, output, discovered_elements, snapshot_excerpt)
+- The action definition from the plan
+- The **snapshot file path** `{working_dir}/snapshots/{action_name}.yml`
+  (instruct the agent to READ this file for element discovery — NO browser interaction needed)
 - Instruct it to read `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt` for the actions.yaml format
 - Instruct it to write to `{working_dir}/actions/{action_name}.yaml`
+- **CRITICAL:** The agent must use `target_ref` with ref IDs from the snapshot file, NOT hand-written selectors
 
-#### Step 2c: Validate Generator Output
+#### Step 2c: Hydrate selectors (CODE — deterministic)
 
-After all Generators complete:
-1. Close all Chrome instances:
-   ```bash
-   playwright-cli close-all
-   powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrome-cdp*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-   ```
-2. Read each `actions/{action_name}.yaml` file.
-3. Basic checks (valid YAML? has steps?).
-4. Log any missing or invalid actions.
+Run `selector_hydrator.py` for each action. This script:
+- Reads the action YAML (with `target_ref` values)
+- Reads the **same snapshot file** used in step 2b
+- Finds each ref in the parsed tree
+- Generates multi-strategy selectors via `generate_selector_set()`
+- Generates `target_hint` for fallback re-finding
+- Parameterizes selectors (replaces test values with `$param_name`)
+- Overwrites the action YAML with hydrated selectors
+
+```bash
+HYDRATOR="${CLAUDE_PLUGIN_ROOT}/scripts/selector_hydrator.py"
+
+for action_name in ${action_names[@]}; do
+  PYTHONIOENCODING=utf-8 python3 "$HYDRATOR" \
+    --action "{working_dir}/actions/${action_name}.yaml" \
+    --snapshot "{working_dir}/snapshots/${action_name}.yml"
+done
+```
+
+After hydration, verify each action YAML has `selector` fields (not `target_ref`).
+
+#### Step 2d: Validate Generator Output
+
+1. Read each `actions/{action_name}.yaml` file.
+2. Basic checks: valid YAML? has steps? has `selector` (not `target_ref`)?
+3. Log any missing, invalid, or un-hydrated actions.
 
 ### Phase 3: Evaluation (Code Validation + LLM Semantic Review)
 
@@ -235,11 +282,13 @@ If some actions FAIL:
 
 2. Let F = number of failed actions. Create `retry_1/` directory.
 
-3. Launch F Chrome instances and spawn F Generators in parallel (same as Phase 2, but only for failed actions).
-   - Include Evaluator feedback (error, fix_hint) in each Generator prompt.
-   - Write to `retry_1/actions/{action_name}.yaml`.
+3. Re-run Phase 2 (snapshot → ref selection → hydration) for failed actions only:
+   - Step 2a: Re-capture snapshots for failed actions (fresh page state)
+   - Step 2b: Re-select refs with Evaluator feedback (error, fix_hint) included in the prompt
+   - Step 2c: Re-hydrate with `selector_hydrator.py`
+   - Write to `retry_1/actions/{action_name}.yaml`
 
-4. After Generators complete, launch F Chrome instances and spawn F Evaluators in parallel (same as Phase 3).
+4. Re-run Phase 3 (code validation + LLM review) for retried actions.
    - Write to `retry_1/evals/{action_name}.yaml`.
 
 5. Check results again. If still FAIL, repeat with `retry_2/`.
