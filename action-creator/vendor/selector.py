@@ -166,6 +166,9 @@ def generate_selector_set(
     for tpi_sel in _gen_tree_path_index(node, tree):
         _add_if_valid(tpi_sel)
 
+    # 2e. landmark_descendant (DFS within landmark, ignores wrapper structure)
+    _add_if_valid(_gen_landmark_descendant(node, tree))
+
     # 3. relative (landmark + name)
     _add_if_valid(_gen_relative(node, tree))
 
@@ -365,6 +368,77 @@ def _gen_tree_path_index(node: SnapshotNode, tree: SnapshotNode) -> list[Selecto
             ))
 
     return results
+
+
+def _gen_landmark_descendant(node: SnapshotNode, tree: SnapshotNode) -> Selector | None:
+    """Generate landmark_descendant selector. Priority 2.
+
+    Format: landmark >> role[N]  or  landmark[K] >> role[N]
+    DFS walks from landmark to find the Nth node of target's role,
+    ignoring all intermediate wrapper structure.
+
+    Example: main >> heading[0]  (first heading anywhere under main)
+
+    This is resilient to:
+    - Dynamic text changes (no names used)
+    - Intermediate wrapper structure changes (DFS ignores depth)
+    Only depends on DFS ordering of same-role elements within the landmark.
+    """
+    if not node.role:
+        return None
+
+    # Find the nearest landmark ancestor
+    ancestors = _get_ancestors(node, tree)
+    landmark = None
+    for anc in ancestors:
+        if anc.role in _LANDMARK_ROLES:
+            landmark = anc
+            break
+
+    if not landmark:
+        return None
+
+    # Check if this landmark role is unique in the tree
+    same_role_landmarks: list[SnapshotNode] = []
+    for n in walk_tree(tree):
+        if n.role == landmark.role and n is not tree:
+            same_role_landmarks.append(n)
+
+    landmark_unique = len(same_role_landmarks) <= 1
+
+    # If not unique, compute ordinal (DFS position among same-role landmarks)
+    landmark_ordinal = 0
+    if not landmark_unique:
+        for lm in same_role_landmarks:
+            if lm is landmark or (lm.ref and lm.ref == landmark.ref):
+                break
+            landmark_ordinal += 1
+
+    # Count DFS-order position of target's role within the landmark
+    idx = 0
+    found = False
+    for n in walk_tree(landmark):
+        if n is node or (n.ref and n.ref == node.ref):
+            found = True
+            break
+        if n.role == node.role and n.ref:
+            idx += 1
+
+    if not found:
+        return None
+
+    # Build value
+    if landmark_unique:
+        value = f'{landmark.role} >> {node.role}[{idx}]'
+    else:
+        value = f'{landmark.role}[{landmark_ordinal}] >> {node.role}[{idx}]'
+
+    return Selector(
+        strategy="landmark_descendant",
+        value=value,
+        priority=2,
+        unique=True,
+    )
 
 
 def _gen_relative(node: SnapshotNode, tree: SnapshotNode) -> Selector | None:
@@ -956,6 +1030,8 @@ def _try_resolve(tree: SnapshotNode, sel: Selector) -> SnapshotNode | None:
         return _resolve_relative_index(tree, sel)
     elif sel.strategy == "relative_index_grouped":
         return _resolve_relative_index_grouped(tree, sel)
+    elif sel.strategy == "landmark_descendant":
+        return _resolve_landmark_descendant(tree, sel)
     return None
 
 
@@ -1177,6 +1253,59 @@ def _resolve_relative_index(tree: SnapshotNode, sel: Selector) -> SnapshotNode |
             idx += 1
 
     return None
+
+    return None
+
+
+def _resolve_landmark_descendant(
+    tree: SnapshotNode, sel: Selector,
+) -> SnapshotNode | None:
+    """Resolve landmark_descendant selector.
+
+    Formats:
+      'main >> heading[0]'           — unique landmark by role
+      'navigation[1] >> link[0]'     — landmark by role + ordinal
+
+    DFS walks from landmark to find the Nth node of target role.
+    """
+    # Parse: landmark >> role[N]  or  landmark[K] >> role[N]
+    m = re.match(r'(\w+)(?:\[(\d+)\])?\s*>>\s*(\w+)\[(\d+)\]$', sel.value)
+    if not m:
+        return None
+
+    landmark_role = m.group(1)
+    landmark_ordinal = int(m.group(2)) if m.group(2) is not None else None
+    target_role = m.group(3)
+    target_idx = int(m.group(4))
+
+    # Find the landmark
+    landmark = None
+    if landmark_ordinal is not None:
+        # Find the Kth landmark of this role (DFS order)
+        idx = 0
+        for n in walk_tree(tree):
+            if n.role == landmark_role and n is not tree:
+                if idx == landmark_ordinal:
+                    landmark = n
+                    break
+                idx += 1
+    else:
+        # Find first (assumed unique) landmark of this role
+        for n in walk_tree(tree):
+            if n.role == landmark_role and n is not tree:
+                landmark = n
+                break
+
+    if not landmark:
+        return None
+
+    # DFS walk within landmark to find Nth target_role
+    idx = 0
+    for n in walk_tree(landmark):
+        if n.role == target_role and n.ref:
+            if idx == target_idx:
+                return n
+            idx += 1
 
     return None
 

@@ -141,7 +141,7 @@ def _count_tree_matches(tree: SnapshotNode, sel: Selector) -> int:
         node = resolve_selector(tree, single)
         return 1 if node else 0
 
-    if sel.strategy in ("relative", "relative_index", "relative_index_grouped"):
+    if sel.strategy in ("relative", "relative_index", "relative_index_grouped", "landmark_descendant"):
         single = SelectorSet(selectors=[sel])
         node = resolve_selector(tree, single)
         return 1 if node else 0
