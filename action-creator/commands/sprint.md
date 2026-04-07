@@ -154,28 +154,56 @@ After all Generators complete:
 1. Close all Chrome instances:
    ```bash
    playwright-cli close-all
+   powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrome-cdp*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
    ```
 2. Read each `actions/{action_name}.yaml` file.
 3. Basic checks (valid YAML? has steps?).
 4. Log any missing or invalid actions.
 
-### Phase 3: Evaluator (all actions in parallel)
+### Phase 3: Evaluation (Code Validation + LLM Semantic Review)
 
-#### Step 3a: Launch N Chrome instances
+Evaluation has two sub-phases: code-based selector validation (deterministic) and LLM semantic review.
+
+#### Step 3a: Code Validation (selector_validator.py)
+
+Launch ONE Chrome instance for code validation:
 
 ```bash
-for i in $(seq 0 $((N-1))); do
-  start chrome --remote-debugging-port=$((9222+i)) --user-data-dir="C:/tmp/chrome-cdp-eval-$i" --no-first-run
-done
+start chrome --remote-debugging-port=9222 --user-data-dir="C:/tmp/chrome-cdp-eval" --no-first-run
 sleep 3
-for i in $(seq 0 $((N-1))); do
-  playwright-cli -s=eval_$i attach --cdp=http://127.0.0.1:$((9222+i))
+curl -s http://127.0.0.1:9222/json/version
+```
+
+Run `selector_validator.py` for each action. This script:
+- Connects to Chrome via CDP
+- Takes a live snapshot at each step
+- Tests **every selector strategy independently** using the actual code resolver (`resolve_selector_from_spec`)
+- Compares ref IDs (extract_text) or match counts (extract_list) across strategies
+- Runs `replay_action()` for a full execution test
+
+```bash
+for action_file in {working_dir}/actions/*.yaml; do
+  PYTHONIOENCODING=utf-8 pip_python_or_system_python \
+    ${CLAUDE_PLUGIN_ROOT}/scripts/selector_validator.py \
+    --cdp-port 9222 \
+    --action "$action_file" \
+    --out-dir {working_dir}/code_evals/
 done
 ```
 
-#### Step 3b: Spawn all Evaluators in parallel
+> **Python requirement:** The script needs `pyyaml` and `openai-agents` packages.
+> Use whichever Python has these installed (system or project embedded).
 
-Spawn **all Evaluator agents in a single message**:
+Close Chrome after all validations:
+```bash
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrome-cdp*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+```
+
+Read each `code_evals/{action_name}.eval.yaml` and log the status (PASS/WARN/FAIL).
+
+#### Step 3b: LLM Semantic Review (parallel, no browser needed)
+
+Spawn **all Evaluator agents in a single message** (no browser session required):
 
 ```
 Agent(subagent_type="action-creator:evaluator", description="Evaluator: action_0")
@@ -184,20 +212,16 @@ Agent(subagent_type="action-creator:evaluator", description="Evaluator: action_1
 ```
 
 **Prompt each Evaluator with:**
-- The site name, entry URL
-- **Session name: `eval_0`** (or `eval_1`, `eval_2`, ...)
-- The **single action** YAML content to test
+- The **action YAML content** from `actions/{action_name}.yaml`
+- The **code validation result** from `code_evals/{action_name}.eval.yaml`
 - The **action definition from the plan** (params, expected output)
 - Instruct it to write `{working_dir}/evals/{action_name}.yaml`
 
 #### Step 3c: Check Results
 
 After all Evaluators complete:
-1. Close all Chrome instances:
-   ```bash
-   playwright-cli close-all
-   ```
-2. Read all `evals/{action_name}.yaml` files.
+1. Read all `evals/{action_name}.yaml` files.
+2. An action is FAIL if **either** code validation or LLM review says FAIL.
 3. Count PASS vs FAIL.
 4. Report progress to user.
 
@@ -227,6 +251,7 @@ If some actions FAIL:
 1. Clean up:
    ```bash
    playwright-cli close-all
+   powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrome-cdp*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
    ```
 2. Collect all PASS actions from `actions/` and `retry_*/actions/` (latest passing version).
 3. Merge into `final/actions.yaml`.
