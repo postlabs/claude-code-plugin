@@ -484,6 +484,77 @@ async def _replay_select(
     return None
 
 
+def _resolve_by_hint(
+    tree: "SnapshotNode",
+    hint: dict[str, Any],
+) -> "SnapshotNode | None":
+    """Re-find an element using target_hint when selectors fail.
+
+    Searches the tree for candidates matching the hint's role and
+    structural characteristics, then picks the best match by scoring.
+    """
+    from .snapshot_tree import walk_tree
+
+    target_role = hint.get("role", "")
+    if not target_role:
+        return None
+
+    min_children = hint.get("min_children", 0)
+    child_role = hint.get("child_role")
+    link_pattern = hint.get("child_link_pattern", "")
+    target_name = hint.get("name", "")
+
+    candidates: list[tuple[SnapshotNode, int]] = []
+
+    for node in walk_tree(tree):
+        if node.role != target_role:
+            continue
+
+        score = 0
+        children_with_ref = [c for c in node.children if c.ref]
+
+        # Name match
+        if target_name and node.name and target_name in node.name:
+            score += 10
+
+        # Child count
+        if min_children and len(children_with_ref) >= min_children:
+            score += 5
+        elif min_children:
+            continue  # hard filter
+
+        # Child role match
+        if child_role:
+            matching = sum(1 for c in children_with_ref if c.role == child_role)
+            if matching > 0:
+                score += 3
+            else:
+                continue  # hard filter
+
+        # Child link pattern match (most reliable for product lists)
+        if link_pattern:
+            pattern_matches = 0
+            for child in node.children[:10]:
+                for n in walk_tree(child):
+                    if n.role == "/url" and n.name and link_pattern in n.name:
+                        pattern_matches += 1
+                        break
+            if pattern_matches >= 2:
+                score += 20  # strong signal
+            elif pattern_matches == 0:
+                continue  # hard filter
+
+        if score > 0:
+            candidates.append((node, score))
+
+    if not candidates:
+        return None
+
+    # Pick highest score; on tie, prefer more children (larger container)
+    candidates.sort(key=lambda x: (-x[1], -len(x[0].children)))
+    return candidates[0][0]
+
+
 async def _resolve_step_element(
     browser: Any,
     step: dict[str, Any],
@@ -522,6 +593,18 @@ async def _resolve_step_element(
     node = resolve_selector_from_spec(tree, selector_spec)
     if node:
         return node
+
+    # Fallback: use target_hint to re-find the element on the live page.
+    # This handles dynamic pages where DOM structure changes between
+    # snapshot time (when selectors were generated) and execution time.
+    hint = step.get("target_hint")
+    if hint:
+        node = _resolve_by_hint(tree, hint)
+        if node:
+            from .logger_stub import logger
+            logger.info("[replay] selector failed, resolved via target_hint",
+                        ref=node.ref, role=node.role, hint_role=hint.get("role"))
+            return node
 
     # Build human-readable error
     selector_set = spec_to_selector_set(selector_spec)

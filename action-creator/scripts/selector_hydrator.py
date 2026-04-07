@@ -41,11 +41,58 @@ def _find_node_by_ref(tree: SnapshotNode, ref: str) -> SnapshotNode | None:
     return None
 
 
+def _generate_target_hint(node: SnapshotNode) -> dict[str, Any]:
+    """Generate a target_hint from a node's structural characteristics.
+
+    The hint captures stable, content-based properties that can be used
+    to re-find the element on a fresh page load when pre-generated
+    selectors fail due to dynamic page structure changes.
+    """
+    hint: dict[str, Any] = {"role": node.role}
+
+    if node.name:
+        hint["name"] = node.name
+
+    # Children analysis
+    children_with_ref = [c for c in node.children if c.ref]
+    if children_with_ref:
+        hint["min_children"] = max(1, len(children_with_ref) - 5)
+        # Dominant child role
+        child_roles: dict[str, int] = {}
+        for c in children_with_ref:
+            child_roles[c.role] = child_roles.get(c.role, 0) + 1
+        if child_roles:
+            dominant = max(child_roles, key=child_roles.get)  # type: ignore
+            hint["child_role"] = dominant
+
+    # Child link URL patterns (for extract_list — most reliable hint)
+    link_hrefs: list[str] = []
+    for child in node.children[:5]:
+        for n in walk_tree(child):
+            if n.role == "/url" and n.name and n.name.startswith("/"):
+                link_hrefs.append(n.name)
+                break  # one per child
+    if link_hrefs:
+        # Find common path prefix
+        parts_list = [h.split("?")[0].split("/") for h in link_hrefs]
+        if len(parts_list) >= 2:
+            common = []
+            for segments in zip(*parts_list):
+                if len(set(segments)) == 1:
+                    common.append(segments[0])
+                else:
+                    break
+            if len(common) >= 2:
+                hint["child_link_pattern"] = "/".join(common)
+
+    return hint
+
+
 def hydrate_step(
     step: dict[str, Any],
     tree: SnapshotNode,
 ) -> dict[str, Any]:
-    """Replace target_ref with generated selector in a single step."""
+    """Replace target_ref with generated selector + target_hint."""
     ref = step.get("target_ref")
     if not ref:
         return step  # no target_ref → leave unchanged
@@ -60,19 +107,71 @@ def hydrate_step(
         print(f"  WARN: ref={ref} — generate_selector_set returned empty, skipping")
         return step
 
-    # Replace target_ref with selector
+    # Replace target_ref with selector + target_hint
     step = dict(step)  # shallow copy
     step["selector"] = sel_set.to_spec()
+    step["target_hint"] = _generate_target_hint(node)
     del step["target_ref"]
 
     strategies = [s.strategy for s in sel_set.selectors]
     print(f"  ref={ref} → {len(sel_set.selectors)} strategies: {strategies}")
+    hint = step["target_hint"]
+    hint_summary = f"role={hint.get('role')}, min_children={hint.get('min_children', '-')}, pattern={hint.get('child_link_pattern', '-')}"
+    print(f"           hint: {hint_summary}")
+    return step
+
+
+def _parameterize_selectors(
+    step: dict[str, Any],
+    test_params: dict[str, str],
+) -> dict[str, Any]:
+    """Replace hardcoded test param values with $param_name in selector strings.
+
+    After generate_selector_set produces selectors from a snapshot taken with
+    specific test values (e.g. keyword="노트북"), those literal values get
+    embedded in text-based selectors. This function replaces them with
+    $param_name so the selectors work with any parameter value at replay time.
+    """
+    if not test_params:
+        return step
+
+    sel = step.get("selector")
+    if not sel:
+        return step
+
+    def _replace_in(text: str) -> str:
+        for param_name, param_value in test_params.items():
+            if param_value and param_value in text:
+                text = text.replace(param_value, f"${param_name}")
+        return text
+
+    step = dict(step)  # shallow copy
+    sel = dict(sel)
+
+    if "selectors" in sel:
+        new_selectors = []
+        for s in sel["selectors"]:
+            s = dict(s)
+            if "value" in s:
+                s["value"] = _replace_in(s["value"])
+            if "context_text" in s:
+                s["context_text"] = _replace_in(s["context_text"])
+            new_selectors.append(s)
+        sel["selectors"] = new_selectors
+    # Shorthand format: { role, name }
+    if "name" in sel:
+        sel["name"] = _replace_in(sel["name"])
+    if "name_contains" in sel:
+        sel["name_contains"] = _replace_in(sel["name_contains"])
+
+    step["selector"] = sel
     return step
 
 
 def hydrate_action(
     action_def: dict[str, Any],
     tree: SnapshotNode,
+    test_params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Hydrate all steps in an action definition."""
     steps = action_def.get("steps", [])
@@ -96,6 +195,9 @@ def hydrate_action(
                         del trigger["target_ref"]
                         step = dict(step)
                         step["trigger"] = trigger
+        # Parameterize: replace test values with $param references
+        if test_params:
+            step = _parameterize_selectors(step, test_params)
         hydrated_steps.append(step)
 
     result = dict(action_def)
@@ -107,8 +209,19 @@ def hydrate_file(
     action_file: Path,
     snapshot_file: Path,
     out_file: Path | None = None,
+    test_params: dict[str, str] | None = None,
 ) -> None:
-    """Hydrate an action YAML file using a snapshot."""
+    """Hydrate an action YAML file using a snapshot.
+
+    Args:
+        action_file: Action YAML with target_ref fields.
+        snapshot_file: Playwright snapshot taken with test_params values.
+        out_file: Output path (default: overwrite action_file).
+        test_params: Parameter values used when taking the snapshot.
+            e.g. {"keyword": "노트북"}. These literal values will be
+            replaced with $param_name in the generated selectors so
+            the action works with any parameter value at replay time.
+    """
     with open(snapshot_file, encoding="utf-8") as f:
         raw_snapshot = f.read()
     tree, _url = parse_snapshot_tree(raw_snapshot)
@@ -130,7 +243,16 @@ def hydrate_file(
         print(f"  no target_ref found, skipping")
         return
 
-    hydrated = hydrate_action(action_def, tree)
+    # Build test_params from action's verified_with if not provided
+    if test_params is None:
+        test_params = {}
+        verified = action_def.get("verified_with") or {}
+        params_def = action_def.get("params") or {}
+        for pname in params_def:
+            if pname in verified and verified[pname]:
+                test_params[pname] = str(verified[pname])
+
+    hydrated = hydrate_action(action_def, tree, test_params=test_params)
     raw[action_name] = hydrated
 
     out = out_file or action_file
@@ -144,9 +266,13 @@ def main() -> None:
     parser.add_argument("--action", type=Path, required=True, help="Action YAML file")
     parser.add_argument("--snapshot", type=Path, required=True, help="Snapshot YAML file")
     parser.add_argument("--out", type=Path, default=None, help="Output file (default: overwrite)")
+    parser.add_argument("--params", type=str, default=None,
+                        help='Test params as JSON: \'{"keyword":"노트북"}\'')
     args = parser.parse_args()
 
-    hydrate_file(args.action, args.snapshot, args.out)
+    import json
+    test_params = json.loads(args.params) if args.params else None
+    hydrate_file(args.action, args.snapshot, args.out, test_params=test_params)
 
 
 if __name__ == "__main__":
