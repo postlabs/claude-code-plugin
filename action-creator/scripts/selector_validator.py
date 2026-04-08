@@ -52,6 +52,7 @@ class _SimpleBrowser:
 
     def __init__(self, adapter: Any):
         self._adapter = adapter
+        self._session = type('_shim', (), {'adapter': adapter})()
         self._tree: SnapshotNode = SnapshotNode(role="root")
         self._raw_snapshot: str = ""
 
