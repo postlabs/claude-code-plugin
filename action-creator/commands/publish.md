@@ -1,6 +1,6 @@
 ---
-description: "Publish sprint actions to 2-tier folder structure"
-argument-hint: "<output_dir> [actions_dir]"
+description: "Publish sprint actions to web_dough profile directory"
+argument-hint: "<output_dir> [--profile-dir <path>]"
 user-invocable: true
 allowed-tools:
   - Bash
@@ -9,19 +9,21 @@ allowed-tools:
 
 # Publish Actions
 
-Run the publish script to convert sprint output into the 2-tier action folder structure.
+Run the publish script to save sprint output to `web_dough/<domain>/actions/`.
+
+Actions are grouped by domain (extracted from each action's URL).
 
 ## Input
 
 - `output_dir`: Sprint output directory (e.g. `output/action_creator/naver`)
-- `actions_dir` (optional): Target directory. Defaults to `actions` in the project root.
+- `--profile-dir` (optional): web_dough root. Auto-detects from Mojo profile if omitted.
 
 Parse from `$ARGUMENTS`. If no output_dir is provided, ask the user.
 
 ## Execution
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/publish.py <output_dir> <actions_dir>
+python ${CLAUDE_PLUGIN_ROOT}/scripts/publish.py <output_dir>
 ```
 
 Report the result to the user.

@@ -1,5 +1,5 @@
 {
   "name": "action-creator",
   "description": "Sprint-based multi-agent pipeline that discovers website features and generates automation action presets",
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

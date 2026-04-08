@@ -1,19 +1,19 @@
 """
-Publish: final/actions.yaml → 2-tier action folder structure.
+Publish: sprint output → web_dough/<domain>/actions/<name>.yaml
 
 Usage:
-    python publish.py <output_dir> <actions_dir>
+    python publish.py <output_dir> [--profile-dir <path>]
 
-    output_dir:  sprint output (e.g. output/action_creator/naver)
-    actions_dir: publish target (e.g. actions)
+    output_dir:    sprint output (e.g. output/action_creator/naver)
+    --profile-dir: web_dough root (default: auto-detect from MOJO_USER_DATA_DIR)
 
 Example:
-    python publish.py output/action_creator/naver actions
+    python publish.py output/action_creator/naver
 """
 
 import sys
-import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -48,130 +48,123 @@ def merge_sprint_actions(output_dir: Path) -> dict:
     return merged
 
 
-def extract_site_name(output_dir: Path) -> str:
-    return output_dir.name
-
-
-def extract_site_meta(output_dir: Path) -> dict:
-    """Extract site metadata from sprint_plan.yaml if available."""
-    plan_path = output_dir / "sprint_plan.yaml"
-    if not plan_path.exists():
-        return {}
-    with open(plan_path, "r", encoding="utf-8") as f:
-        plan = yaml.safe_load(f) or {}
-
-    meta = {}
-    if "site" in plan:
-        meta["site"] = plan["site"]
-    # look for entry_url in scenarios or top level
-    for scenario in plan.get("scenarios", []):
-        for action in scenario.get("actions", []):
-            if "entry_url" in action:
-                meta["url"] = action["entry_url"].split("/")[0:3]
-                meta["url"] = "/".join(action["entry_url"].split("/")[:3])
+def extract_domain(action: dict) -> str | None:
+    """Extract domain from action's url or first navigate step."""
+    url = action.get("url", "")
+    if not url:
+        for step in action.get("steps", []):
+            if step.get("action") == "navigate" and step.get("url"):
+                url = step["url"]
                 break
-        if "url" in meta:
-            break
-    return meta
+    if not url:
+        return None
+    # Strip template markers like {{param}}
+    clean = url.replace("{{", "").replace("}}", "")
+    parsed = urlparse(clean)
+    return parsed.netloc or None
 
 
-def publish(output_dir: Path, actions_dir: Path):
-    site_name = extract_site_name(output_dir)
+def get_default_web_dough_dir() -> Path:
+    """Auto-detect web_dough directory from standard Mojo user data path."""
+    import os
+    # Windows: %APPDATA%/Mojo
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        mojo_dir = Path(appdata) / "Mojo"
+    else:
+        mojo_dir = Path.home() / ".mojo"
+
+    profiles_dir = mojo_dir / "profiles"
+    if not profiles_dir.exists():
+        return profiles_dir  # will fail later with clear error
+
+    # Use first profile found
+    for d in profiles_dir.iterdir():
+        if d.is_dir() and (d / "doughs").exists():
+            return d / "web_dough"
+
+    # Fallback: first profile dir
+    for d in profiles_dir.iterdir():
+        if d.is_dir():
+            return d / "web_dough"
+
+    return profiles_dir / "default" / "web_dough"
+
+
+def publish(output_dir: Path, web_dough_dir: Path):
     actions = load_final_actions(output_dir)
 
     if not actions:
         print(f"No actions found in {output_dir}")
         sys.exit(1)
 
-    site_dir = actions_dir / site_name
-    site_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1. Write individual action files
-    action_count = 0
-    for name, action in actions.items():
-        action_path = site_dir / f"{name}.yaml"
-        with open(action_path, "w", encoding="utf-8") as f:
-            yaml.dump(
-                {name: action},
-                f,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-        action_count += 1
-
-    # 2. Write site manifest (Tier 2)
-    site_manifest = {
-        "site": site_name,
-        "actions": {},
-    }
-    site_meta = extract_site_meta(output_dir)
-    if "url" in site_meta:
-        site_manifest["url"] = site_meta["url"]
+    # Group actions by domain
+    domain_actions: dict[str, dict[str, dict]] = {}
+    no_domain: list[str] = []
 
     for name, action in actions.items():
-        entry = {"description": action.get("description", "")}
-        if "params" in action:
-            entry["input"] = list(action["params"].keys())
-        if "output" in action:
-            entry["output"] = action["output"].get("type", "text")
-        site_manifest["actions"][name] = entry
+        domain = extract_domain(action)
+        if domain:
+            domain_actions.setdefault(domain, {})[name] = action
+        else:
+            no_domain.append(name)
 
-    manifest_path = site_dir / "manifest.yaml"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            site_manifest,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
+    if no_domain:
+        print(f"Warning: {len(no_domain)} actions have no URL, skipping: {no_domain}")
 
-    # 3. Update global manifest (Tier 1)
-    global_manifest_path = actions_dir / "manifest.yaml"
-    if global_manifest_path.exists():
-        with open(global_manifest_path, "r", encoding="utf-8") as f:
-            global_manifest = yaml.safe_load(f) or {}
-    else:
-        global_manifest = {"sites": {}}
+    # Write to web_dough/<domain>/actions/<name>.yaml
+    total = 0
+    for domain, domain_acts in sorted(domain_actions.items()):
+        site_dir = web_dough_dir / domain
+        actions_dir = site_dir / "actions"
+        actions_dir.mkdir(parents=True, exist_ok=True)
 
-    if "sites" not in global_manifest:
-        global_manifest["sites"] = {}
+        # Ensure manifest.yaml
+        manifest_path = site_dir / "manifest.yaml"
+        if not manifest_path.exists():
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    {"site": domain},
+                    f, allow_unicode=True, default_flow_style=False, sort_keys=False,
+                )
 
-    global_manifest["sites"][site_name] = {
-        "description": site_meta.get("site", site_name),
-        "action_count": action_count,
-    }
-    if "url" in site_meta:
-        global_manifest["sites"][site_name]["url"] = site_meta["url"]
+        for name, action in domain_acts.items():
+            action_path = actions_dir / f"{name}.yaml"
+            with open(action_path, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    {name: action},
+                    f, default_flow_style=False, allow_unicode=True, sort_keys=False,
+                )
+            total += 1
 
-    with open(global_manifest_path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            global_manifest,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
+        print(f"  {domain}: {len(domain_acts)} actions")
 
-    print(f"Published {action_count} actions → {site_dir}")
-    print(f"Site manifest → {manifest_path}")
-    print(f"Global manifest → {global_manifest_path}")
+    print(f"\nPublished {total} actions → {web_dough_dir}")
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print(__doc__.strip())
         sys.exit(1)
 
     output_dir = Path(sys.argv[1])
-    actions_dir = Path(sys.argv[2])
+
+    # Parse --profile-dir flag
+    web_dough_dir = None
+    if "--profile-dir" in sys.argv:
+        idx = sys.argv.index("--profile-dir")
+        if idx + 1 < len(sys.argv):
+            web_dough_dir = Path(sys.argv[idx + 1])
+
+    if web_dough_dir is None:
+        web_dough_dir = get_default_web_dough_dir()
 
     if not output_dir.exists():
         print(f"Error: {output_dir} does not exist")
         sys.exit(1)
 
-    publish(output_dir, actions_dir)
+    print(f"Target: {web_dough_dir}")
+    publish(output_dir, web_dough_dir)
 
 
 if __name__ == "__main__":

@@ -89,9 +89,9 @@ Agent(subagent_type="action-creator:planner")
    playwright-cli -s=planner close
    ```
 
-### Phase 1.5: Scenario Review (User Confirmation)
+### Phase 1.5: Scenario Summary (Auto-select all)
 
-Display the scenario list to the user in this format:
+Display the scenario list to the user for visibility, then proceed with ALL scenarios automatically:
 
 ```
 ## 발견된 시나리오
@@ -102,17 +102,10 @@ Display the scenario list to the user in this format:
 | 2 | 환율 변환 | convert_currency | - |
 | 3 | ... | ... | ... |
 
-총 {N}개 시나리오, {M}개 action
-
-진행할 시나리오 번호를 선택하세요 (예: 1,3 또는 all):
+총 {N}개 시나리오, {M}개 action → 전체 진행
 ```
 
-**Wait for user response.** Then:
-- `all` → proceed with all scenarios
-- `1,3` → keep only selected scenarios, remove the rest
-- User may also give feedback like "2번은 빼고" → adjust accordingly
-
-Update the action list to include only selected actions.
+**Do NOT wait for user confirmation.** Proceed immediately with all scenarios.
 
 ### Phase 2: Generator (3-step: snapshot → ref selection → hydration)
 
@@ -335,6 +328,25 @@ Actions: {pass_count}/{total_count} passed
 Failed: {fail_count} (details in evals/)
 Retries: {retry_count}
 ```
+
+### Phase 6: Auto-Publish & Cleanup
+
+Automatically publish valid actions to the user's `web_dough/` profile directory:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/publish.py {working_dir}
+```
+
+This groups actions by domain and saves them to `web_dough/<domain>/actions/<name>.yaml`.
+
+**If publish succeeds**, clean up the working directory:
+```bash
+rm -rf {working_dir}
+```
+
+**If publish fails**, keep the working directory intact for debugging.
+
+Report the publish result to the user.
 
 ## Important Rules
 
