@@ -79,6 +79,9 @@ class _SimpleBrowser:
     async def press(self, key: str) -> None:
         await self._adapter.call_tool("browser_press_key", {"key": key})
 
+    async def press_key(self, key: str) -> None:
+        await self.press(key)
+
     async def select_option(self, node: SnapshotNode, values: list[str]) -> None:
         await self._adapter.call_tool("browser_select_option", {"ref": node.ref, "values": values})
 
