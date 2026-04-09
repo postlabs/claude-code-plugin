@@ -263,16 +263,34 @@ def hydrate_file(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Selector Hydrator")
-    parser.add_argument("--action", type=Path, required=True, help="Action YAML file")
-    parser.add_argument("--snapshot", type=Path, required=True, help="Snapshot YAML file")
+    # Single-file mode
+    parser.add_argument("--action", type=Path, default=None, help="Action YAML file")
+    parser.add_argument("--snapshot", type=Path, default=None, help="Snapshot YAML file")
     parser.add_argument("--out", type=Path, default=None, help="Output file (default: overwrite)")
     parser.add_argument("--params", type=str, default=None,
                         help='Test params as JSON: \'{"keyword":"노트북"}\'')
+    # Directory mode
+    parser.add_argument("--actions-dir", type=Path, default=None,
+                        help="Directory of action YAMLs (pairs with --snapshots-dir)")
+    parser.add_argument("--snapshots-dir", type=Path, default=None,
+                        help="Directory of snapshot YAMLs")
     args = parser.parse_args()
 
     import json
     test_params = json.loads(args.params) if args.params else None
-    hydrate_file(args.action, args.snapshot, args.out, test_params=test_params)
+
+    if args.actions_dir and args.snapshots_dir:
+        # Directory mode: match action files to snapshots by stem name
+        for action_file in sorted(args.actions_dir.glob("*.yaml")):
+            snapshot_file = args.snapshots_dir / f"{action_file.stem}.yml"
+            if not snapshot_file.exists():
+                print(f"SKIP: {action_file.name} — no matching snapshot {snapshot_file.name}")
+                continue
+            hydrate_file(action_file, snapshot_file, test_params=test_params)
+    elif args.action and args.snapshot:
+        hydrate_file(args.action, args.snapshot, args.out, test_params=test_params)
+    else:
+        parser.error("Provide --action + --snapshot, or --actions-dir + --snapshots-dir")
 
 
 if __name__ == "__main__":

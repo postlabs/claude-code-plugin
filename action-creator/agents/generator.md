@@ -75,20 +75,19 @@ Use `$param_name` for values the user provides at runtime.
 
 ## Schema Reference
 
-Read the schema file at `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt` for the full actions.yaml format including:
+Read the schema file at `${CLAUDE_PLUGIN_ROOT}/prompts/schema.md` for the full actions.yaml format including:
 - All 11 step types (click, fill, select, press, navigate, scroll, extract_text, extract_list, wait, handle_dialog, select_custom, evaluate)
 - Selector format with 7 strategies organized by priority
 - Parameter reference syntax
 - Naming conventions and complete examples
 
-**You MUST read schema.txt before writing any actions.**
+**You MUST read schema.md before writing any actions.**
 
 ## Output Files
 
-1. `actions.yaml` — append new actions. **Read existing file first** — do not overwrite.
-2. `site.yaml` — update with newly discovered pages if needed.
+Write each action to its own file: `actions/{action_name}.yaml`
 
-**Save actions.yaml after each new action entry.**
+The file path will be provided in your prompt.
 
 ## Action Rules
 

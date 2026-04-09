@@ -29,21 +29,21 @@ def load_final_actions(output_dir: Path) -> dict:
 
 
 def merge_sprint_actions(output_dir: Path) -> dict:
-    """Fallback: collect actions from sprint_N/actions.yaml files."""
+    """Fallback: collect actions from actions/ and retry_*/actions/ directories."""
     merged = {}
-    sprint_dirs = sorted(output_dir.glob("sprint_*"))
-    for sprint_dir in sprint_dirs:
-        if not sprint_dir.is_dir():
+    # Base actions
+    for f in sorted((output_dir / "actions").glob("*.yaml")) if (output_dir / "actions").is_dir() else []:
+        with open(f, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+            merged.update(data)
+    # Retry actions (later retries override earlier ones)
+    for retry_dir in sorted(output_dir.glob("retry_*")):
+        actions_dir = retry_dir / "actions"
+        if not actions_dir.is_dir():
             continue
-        # use latest retry if exists
-        retry_dirs = sorted(sprint_dir.glob("retry_*"))
-        actions_file = (
-            retry_dirs[-1] / "actions.yaml" if retry_dirs
-            else sprint_dir / "actions.yaml"
-        )
-        if actions_file.exists():
-            with open(actions_file, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
+        for f in sorted(actions_dir.glob("*.yaml")):
+            with open(f, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
                 merged.update(data)
     return merged
 

@@ -8,8 +8,6 @@ allowed-tools:
   - Write
   - Bash
   - Glob
-  - Grep
-  - WebFetch
 ---
 
 # Action Creator Pipeline
@@ -29,8 +27,14 @@ Create a working directory for this run:
 ```
 {project_root}/output/action_creator/{site_name}/
 ├── plan.yaml                ← Planner output
+├── snapshots/
+│   ├── {action_name}.yml    ← Step 2a snapshot output
+│   └── ...
 ├── actions/
 │   ├── {action_name}.yaml   ← Generator output (per action)
+│   └── ...
+├── code_evals/
+│   ├── {action_name}.eval.yaml  ← Step 3a code validation output
 │   └── ...
 ├── evals/
 │   ├── {action_name}.yaml   ← Evaluator output (per action)
@@ -113,7 +117,7 @@ The Generator phase splits into 3 deterministic steps. The snapshot file is the
 single source of truth shared between all steps — ref mismatch is structurally impossible.
 
 ```
-Step 2a: CODE  → navigate + browser_snapshot(filename=...) → snapshot files saved
+Step 2a: CODE  → playwright-cli goto + snapshot → snapshot files saved
 Step 2b: LLM   → read each snapshot file, pick ref IDs → write action YAML (target_ref)
 Step 2c: CODE  → selector_hydrator.py --action X --snapshot Y → final YAML with selectors
 ```
@@ -132,23 +136,18 @@ playwright-cli -s=gen attach --cdp=http://127.0.0.1:9222
 ```
 
 For each action:
-1. Navigate to the action's entry URL (with test params substituted)
-   using the Playwright MCP `browser_navigate` tool
-2. Wait for DOM stability using `browser_evaluate`:
-   ```javascript
-   await new Promise(resolve => {
-     let prev = 0;
-     const check = () => {
-       const curr = document.querySelectorAll('*').length;
-       if (curr === prev && curr > 50) resolve();
-       else { prev = curr; setTimeout(check, 1000); }
-     };
-     check();
-   });
+1. Navigate to the action's entry URL (with test params substituted):
+   ```bash
+   playwright-cli -s=gen goto "<url>"
    ```
-   This polls DOM element count every 1s. When it stops changing, the page is
-   fully rendered. Works for any page type — no fixed sleep, no page-specific threshold.
-3. Save snapshot using `browser_snapshot(filename="{working_dir}/snapshots/{action_name}.yml")`
+2. Wait for network idle:
+   ```bash
+   playwright-cli -s=gen run-code "async (page) => { await page.waitForLoadState('networkidle', { timeout: 10000 }); }"
+   ```
+3. Save snapshot to file:
+   ```bash
+   playwright-cli -s=gen snapshot --raw > "{working_dir}/snapshots/{action_name}.yml"
+   ```
 
 After all snapshots are captured, close Chrome:
 ```bash
@@ -163,7 +162,7 @@ Verify all snapshot files exist before proceeding.
 For each action, read its snapshot file and the plan action definition.
 Then write the action YAML with `target_ref` values (NOT hand-written selectors).
 
-Read the schema format from `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt`.
+Read the schema format from `${CLAUDE_PLUGIN_ROOT}/prompts/schema.md`.
 
 You can process all actions **sequentially** (read snapshot → write YAML → next)
 or spawn **parallel sub-agents** (each reads its own snapshot file — no browser needed).
@@ -180,7 +179,7 @@ Agent(subagent_type="action-creator:generator", description="Generator: action_1
 - The action definition from the plan
 - The **snapshot file path** `{working_dir}/snapshots/{action_name}.yml`
   (instruct the agent to READ this file for element discovery — NO browser interaction needed)
-- Instruct it to read `${CLAUDE_PLUGIN_ROOT}/prompts/schema.txt` for the actions.yaml format
+- Instruct it to read `${CLAUDE_PLUGIN_ROOT}/prompts/schema.md` for the actions.yaml format
 - Instruct it to write to `{working_dir}/actions/{action_name}.yaml`
 - **CRITICAL:** The agent must use `target_ref` with ref IDs from the snapshot file, NOT hand-written selectors
 - **CRITICAL:** The agent must include a `verified_with` field in the action YAML with the actual test parameter values used during snapshot capture. The validator uses these values for URL substitution and replay testing. Example:
@@ -206,13 +205,9 @@ Run `selector_hydrator.py` for each action. This script:
 - Overwrites the action YAML with hydrated selectors
 
 ```bash
-HYDRATOR="${CLAUDE_PLUGIN_ROOT}/scripts/selector_hydrator.py"
-
-for action_name in ${action_names[@]}; do
-  PYTHONIOENCODING=utf-8 python3 "$HYDRATOR" \
-    --action "{working_dir}/actions/${action_name}.yaml" \
-    --snapshot "{working_dir}/snapshots/${action_name}.yml"
-done
+PYTHONIOENCODING=utf-8 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/selector_hydrator.py" \
+  --actions-dir "{working_dir}/actions" \
+  --snapshots-dir "{working_dir}/snapshots"
 ```
 
 After hydration, verify each action YAML has `selector` fields (not `target_ref`).
@@ -245,13 +240,10 @@ Run `selector_validator.py` for each action. This script:
 - Runs `replay_action()` for a full execution test
 
 ```bash
-for action_file in {working_dir}/actions/*.yaml; do
-  PYTHONIOENCODING=utf-8 pip_python_or_system_python \
-    ${CLAUDE_PLUGIN_ROOT}/scripts/selector_validator.py \
-    --cdp-port 9222 \
-    --action "$action_file" \
-    --out-dir {working_dir}/code_evals/
-done
+PYTHONIOENCODING=utf-8 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/selector_validator.py" \
+  --cdp-port 9222 \
+  --actions-dir "{working_dir}/actions" \
+  --out-dir "{working_dir}/code_evals"
 ```
 
 > **Python requirement:** The script needs `pyyaml` and `openai-agents` packages.
@@ -288,13 +280,15 @@ After all Evaluators complete:
 3. Count PASS vs FAIL.
 4. Report progress to user.
 
-### Phase 4: Retry (FAIL actions only, parallel)
+### Phase 4: Retry (MANDATORY for any non-PASS action)
 
-If some actions FAIL:
+**This phase is NOT optional.** Any action that is not PASS (including FAIL, WARN, TIMEOUT, or un-hydrated) MUST be retried. Do NOT skip to Phase 5 while retryable actions remain.
+
+**Do NOT make judgment calls** about whether a failure is "infrastructure" vs "real" — retry regardless.
 
 1. Check: are the failures identical to the previous attempt?
-   - **Yes (no progress):** Log the stuck failures. Move to Phase 5 with partial results.
-   - **No (progress made):** Continue retry.
+   - **Yes (no progress after retry):** Log the stuck failures. Move to Phase 5 with partial results.
+   - **No (first attempt or progress made):** Continue retry.
 
 2. Let F = number of failed actions. Create `retry_1/` directory.
 
@@ -318,8 +312,10 @@ If some actions FAIL:
    playwright-cli close-all
    powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrome-cdp*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
    ```
-2. Collect all PASS actions from `actions/` and `retry_*/actions/` (latest passing version).
-3. Merge into `final/actions.yaml`.
+2. Merge PASS actions into `final/actions.yaml`:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/merge_actions.py" "{working_dir}"
+   ```
 4. Report summary to user:
 
 ```
@@ -351,8 +347,8 @@ Report the publish result to the user.
 ## Important Rules
 
 - **Planner runs alone** with one Chrome instance.
-- **Generators run in parallel** — each gets its own Chrome + session + output file.
-- **Evaluators run in parallel** — each gets its own Chrome + session + output file.
+- **Generators run in parallel** — each reads its own snapshot file + writes its own output file. No browser needed.
+- **Evaluators run in parallel** — each reads action YAML + code validation result. No browser needed.
 - **Each agent gets a fresh context** — pass all needed information in the prompt, including the session name.
 - **File-based communication** — agents write YAML files, you read them and pass content to the next agent.
 - **Report progress** — after each phase, tell the user what happened.

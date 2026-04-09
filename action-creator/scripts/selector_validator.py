@@ -69,6 +69,13 @@ class _SimpleBrowser:
 
     async def navigate(self, url: str) -> None:
         await self._adapter.call_tool("browser_navigate", {"url": url})
+        # Wait for network idle (handles SPA pages that fetch data after initial load)
+        try:
+            await self._adapter.call_tool("browser_run_code", {
+                "code": "async (page) => { await page.waitForLoadState('networkidle', { timeout: 10000 }); }"
+            })
+        except Exception:
+            await asyncio.sleep(2)  # Fallback if networkidle times out
 
     async def click(self, node: SnapshotNode) -> None:
         await self._adapter.call_tool("browser_click", {"element": node.name, "ref": node.ref})
@@ -473,13 +480,28 @@ async def validate_action_file(
 async def run_main() -> None:
     parser = argparse.ArgumentParser(description="Selector Validator")
     parser.add_argument("--cdp-port", type=int, default=9222)
-    parser.add_argument("--action", type=Path, required=True)
+    # Single-file mode
+    parser.add_argument("--action", type=Path, default=None)
     parser.add_argument("--params", type=str, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
+    # Directory mode
+    parser.add_argument("--actions-dir", type=Path, default=None,
+                        help="Directory of action YAMLs to validate")
     args = parser.parse_args()
 
     params_override = json.loads(args.params) if args.params else None
-    await validate_action_file(args.cdp_port, args.action, params_override, args.out_dir)
+
+    if args.actions_dir:
+        out_dir = args.out_dir or args.actions_dir.parent / "code_evals"
+        for action_file in sorted(args.actions_dir.glob("*.yaml")):
+            try:
+                await validate_action_file(args.cdp_port, action_file, params_override, out_dir)
+            except Exception as e:
+                print(f"[{action_file.stem}] ERROR: {e}")
+    elif args.action:
+        await validate_action_file(args.cdp_port, args.action, params_override, args.out_dir)
+    else:
+        parser.error("Provide --action or --actions-dir")
 
 
 if __name__ == "__main__":
