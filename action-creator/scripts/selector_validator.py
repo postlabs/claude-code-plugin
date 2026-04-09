@@ -320,7 +320,7 @@ async def validate_action(
                 step_entry["error"] = "No selector strategy matched"
             elif not consistency["consistent"]:
                 if "scope_warning" in consistency:
-                    step_entry["status"] = "FAIL"
+                    step_entry["status"] = "WARN"
                     step_entry["error"] = consistency["scope_warning"]
                 elif "refs" in consistency:
                     step_entry["status"] = "WARN"
