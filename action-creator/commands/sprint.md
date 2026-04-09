@@ -53,7 +53,13 @@ Extract `site_name` from the URL (e.g., `https://www.naver.com` → `naver`).
 ### Phase 0: Preparation
 
 1. Create the output directory.
-2. **Start Chrome for Planner:**
+2. **Check existing actions for this domain:**
+   ```bash
+   PYTHONIOENCODING=utf-8 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/list_existing_actions.py" "<target_url>"
+   ```
+   Save the output — this is the list of actions already published for this domain.
+   If non-empty, you will pass this to the Planner so it can skip duplicates.
+3. **Start Chrome for Planner:**
    ```bash
    start chrome --remote-debugging-port=9222 --user-data-dir="C:/tmp/chrome-cdp-0" --no-first-run
    ```
@@ -62,11 +68,11 @@ Extract `site_name` from the URL (e.g., `https://www.naver.com` → `naver`).
    curl -s http://127.0.0.1:9222/json/version
    ```
    If it fails, warn the user and stop.
-3. **Connect Planner session:**
+4. **Connect Planner session:**
    ```bash
    playwright-cli -s=planner attach --cdp=http://127.0.0.1:9222
    ```
-4. Note the site name and entry URL.
+5. Note the site name and entry URL.
 
 ### Phase 1: Planner
 
@@ -80,15 +86,18 @@ Agent(subagent_type="action-creator:planner")
 - The target URL
 - The site name
 - **Session name: `planner`**
+- **Existing actions list** (from Phase 0 step 2) — if non-empty, include it so the Planner skips duplicates
 - Ask it to write `plan.yaml` in the working directory
 
 **After Planner completes:**
 1. Read `plan.yaml` from the working directory.
 2. If `login_required: true` → report to user and stop.
-3. If no actions → report to user and stop.
-4. Parse the plan: `scenarios[]` with `actions[]` and optional `chain`.
-5. Collect all action names into a flat list.
-6. Close Planner Chrome:
+3. If `fully_covered: true` → report "All features already covered by existing actions" and stop.
+4. If no actions → report to user and stop.
+5. If `skipped_existing` is present, log which actions were skipped due to duplicates.
+6. Parse the plan: `scenarios[]` with `actions[]` and optional `chain`.
+7. Collect all action names into a flat list.
+8. Close Planner Chrome:
    ```bash
    playwright-cli -s=planner close
    ```

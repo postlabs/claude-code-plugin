@@ -154,6 +154,32 @@ scenarios:
 - `scenarios[].actions[]` — Atomic actions with params, output, and discovered elements
 - `scenarios[].chain` — Data flow between actions (omit if single action)
 
+## Existing Actions (Deduplication)
+
+If your prompt includes an **existing actions list**, these actions are already published for this domain. Apply these rules:
+
+1. **Skip duplicates:** Do NOT plan actions that overlap with existing ones. If an existing action already covers the same feature, omit it from `plan.yaml`.
+2. **Allow improvements:** If an existing action is incomplete or covers only part of a feature, you MAY plan a replacement. Mark it with `replace: true` and use the **same action name** so it overwrites the old one on publish.
+3. **Complement, don't repeat:** Focus on discovering NEW scenarios and actions that the existing set does not cover.
+4. **Log skipped actions:** Add a `skipped_existing` field at the top of `plan.yaml` listing action names you intentionally excluded because they already exist.
+
+```yaml
+skipped_existing:
+  - get_stock_price      # already published
+  - search_news          # already published
+
+scenarios:
+  - name: "New scenario only"
+    actions:
+      - name: new_action_name
+        ...
+      - name: get_stock_price   # improvement over existing
+        replace: true
+        ...
+```
+
+If the existing actions list covers ALL discoverable features of this site, write `plan.yaml` with `fully_covered: true` and an empty `scenarios` list.
+
 ## Rules
 
 - If a login wall blocks ALL exploration, write plan.yaml with `login_required: true`.
