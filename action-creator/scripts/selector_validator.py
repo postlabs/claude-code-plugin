@@ -43,18 +43,22 @@ from vendor.template import resolve_templates, resolve_deep
 
 
 # ── Browser connection ──
-# Uses Playwright MCP via npx to connect to a running Chrome instance.
-# This avoids depending on the backend's BrowserHandle.
+# Uses Playwright MCP via direct stdio_client + ClientSession nesting.
+# This avoids the AsyncExitStack cancel-scope bug in openai-agents'
+# MCPServerStdio by using proper `async with` nesting, which guarantees
+# __aexit__ runs in the same task that called __aenter__.
 
 
 class _SimpleBrowser:
-    """Minimal browser wrapper using Playwright MCP stdio adapter."""
+    """Minimal browser wrapper using MCP ClientSession directly."""
 
-    def __init__(self, adapter: Any):
-        self._adapter = adapter
-        self._session = type('_shim', (), {'adapter': adapter})()
+    def __init__(self, session: Any):
+        self._session = session
         self._tree: SnapshotNode = SnapshotNode(role="root")
         self._raw_snapshot: str = ""
+
+    async def _call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
+        return await self._session.call_tool(name, arguments or {})
 
     def _extract_text(self, result: Any) -> str:
         if result and hasattr(result, "content") and result.content:
@@ -62,48 +66,47 @@ class _SimpleBrowser:
         return ""
 
     async def snapshot(self) -> SnapshotNode:
-        result = await self._adapter.call_tool("browser_snapshot", {})
+        result = await self._call_tool("browser_snapshot")
         self._raw_snapshot = self._extract_text(result)
         self._tree, _ = parse_snapshot_tree(self._raw_snapshot)
         return self._tree
 
     async def navigate(self, url: str) -> None:
-        await self._adapter.call_tool("browser_navigate", {"url": url})
+        await self._call_tool("browser_navigate", {"url": url})
         # Wait for network idle (handles SPA pages that fetch data after initial load)
         try:
-            await self._adapter.call_tool("browser_run_code", {
+            await self._call_tool("browser_run_code", {
                 "code": "async (page) => { await page.waitForLoadState('networkidle', { timeout: 10000 }); }"
             })
         except Exception:
             await asyncio.sleep(2)  # Fallback if networkidle times out
 
     async def click(self, node: SnapshotNode) -> None:
-        await self._adapter.call_tool("browser_click", {"element": node.name, "ref": node.ref})
+        await self._call_tool("browser_click", {"element": node.name, "ref": node.ref})
 
     async def fill(self, node: SnapshotNode, value: str) -> None:
-        await self._adapter.call_tool("browser_fill_form", {"ref": node.ref, "value": value})
+        await self._call_tool("browser_fill_form", {"ref": node.ref, "value": value})
 
     async def press(self, key: str) -> None:
-        await self._adapter.call_tool("browser_press_key", {"key": key})
+        await self._call_tool("browser_press_key", {"key": key})
 
     async def press_key(self, key: str) -> None:
         await self.press(key)
 
     async def select_option(self, node: SnapshotNode, values: list[str]) -> None:
-        await self._adapter.call_tool("browser_select_option", {"ref": node.ref, "values": values})
+        await self._call_tool("browser_select_option", {"ref": node.ref, "values": values})
 
     async def navigate_back(self) -> None:
-        await self._adapter.call_tool("browser_navigate_back", {})
+        await self._call_tool("browser_navigate_back")
 
     async def handle_dialog(self, accept: bool = True, prompt_text: str | None = None) -> None:
-        tool = "browser_handle_dialog"
         params: dict[str, Any] = {"accept": accept}
         if prompt_text:
             params["promptText"] = prompt_text
-        await self._adapter.call_tool(tool, params)
+        await self._call_tool("browser_handle_dialog", params)
 
     async def evaluate(self, expression: str) -> str:
-        result = await self._adapter.call_tool("browser_evaluate", {"expression": expression})
+        result = await self._call_tool("browser_evaluate", {"expression": expression})
         return self._extract_text(result)
 
     async def scroll(self, direction: str = "down", distance: int = 0, steps: int = 1, x: int = 0, y: int = 0) -> None:
@@ -112,7 +115,7 @@ class _SimpleBrowser:
             dx = distance if direction == "right" else -distance if direction == "left" else 0
         else:
             dx, dy = x, y
-        await self._adapter.call_tool("browser_evaluate", {
+        await self._call_tool("browser_evaluate", {
             "function": f"() => window.scrollBy({dx}, {dy})"
         })
 
@@ -389,15 +392,12 @@ def build_test_params(action_def: dict[str, Any]) -> dict[str, Any]:
 
 
 async def validate_action_file(
-    cdp_port: int,
+    browser: _SimpleBrowser,
     action_file: Path,
     params_override: dict[str, Any] | None = None,
     out_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Full validation pipeline for a single action YAML file."""
-    # Lazy import MCP adapter (requires openai-agents package)
-    from agents.mcp import MCPServerStdio, MCPServerStdioParams
-
     with open(action_file, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
@@ -408,73 +408,56 @@ async def validate_action_file(
     action_def = raw[action_name]
     params = params_override or build_test_params(action_def)
 
-    # Connect browser via MCP
-    adapter = MCPServerStdio(
-        params=MCPServerStdioParams(
-            command="npx",
-            args=["@playwright/mcp", "--cdp-endpoint", f"http://127.0.0.1:{cdp_port}"],
-        )
-    )
-    await adapter.connect()
-    browser = _SimpleBrowser(adapter)
+    # Navigate to entry URL
+    url = action_def.get("url", "")
+    if url and params:
+        url = resolve_templates(url, params)
 
-    try:
-        # Navigate to entry URL
-        url = action_def.get("url", "")
-        if url and params:
-            url = resolve_templates(url, params)
+    if url:
+        await browser.navigate(url)
+        await browser.wait_for_stable()
 
-        if url:
-            await browser.navigate(url)
-            await browser.wait_for_stable()
+    # Step-by-step selector validation
+    step_validation = await validate_action(browser, action_def, params)
 
-        # Step-by-step selector validation
-        step_validation = await validate_action(browser, action_def, params)
+    # Full replay (navigate again for clean state)
+    if url:
+        await browser.navigate(url)
+        await browser.wait_for_stable()
 
-        # Full replay (navigate again for clean state)
-        if url:
-            await browser.navigate(url)
-            await browser.wait_for_stable()
+    replay_result = await run_full_replay(browser, action_def, params)
 
-        replay_result = await run_full_replay(browser, action_def, params)
+    # Build result
+    result: dict[str, Any] = {
+        "action": action_name,
+        "validated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "params_used": params,
+        "selector_validation": step_validation["step_results"],
+        "replay_result": replay_result,
+    }
 
-        # Build result
-        result: dict[str, Any] = {
-            "action": action_name,
-            "validated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "params_used": params,
-            "selector_validation": step_validation["step_results"],
-            "replay_result": replay_result,
-        }
+    step_statuses = [s["status"] for s in step_validation["step_results"]]
+    has_fail = "FAIL" in step_statuses
+    has_warn = "WARN" in step_statuses
+    replay_ok = replay_result["success"]
 
-        step_statuses = [s["status"] for s in step_validation["step_results"]]
-        has_fail = "FAIL" in step_statuses
-        has_warn = "WARN" in step_statuses
-        replay_ok = replay_result["success"]
+    if has_fail or not replay_ok:
+        result["status"] = "FAIL"
+    elif has_warn:
+        result["status"] = "WARN"
+    else:
+        result["status"] = "PASS"
 
-        if has_fail or not replay_ok:
-            result["status"] = "FAIL"
-        elif has_warn:
-            result["status"] = "WARN"
-        else:
-            result["status"] = "PASS"
+    # Write output
+    if out_dir is None:
+        out_dir = action_file.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{action_name}.eval.yaml"
+    with open(out_path, "w", encoding="utf-8") as f:
+        yaml.dump(result, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-        # Write output
-        if out_dir is None:
-            out_dir = action_file.parent
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{action_name}.eval.yaml"
-        with open(out_path, "w", encoding="utf-8") as f:
-            yaml.dump(result, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-
-        print(f"[{action_name}] {result['status']} -> {out_path}")
-        return result
-
-    finally:
-        try:
-            await adapter.disconnect()
-        except Exception:
-            pass
+    print(f"[{action_name}] {result['status']} -> {out_path}")
+    return result
 
 
 async def run_main() -> None:
@@ -491,17 +474,34 @@ async def run_main() -> None:
 
     params_override = json.loads(args.params) if args.params else None
 
-    if args.actions_dir:
-        out_dir = args.out_dir or args.actions_dir.parent / "code_evals"
-        for action_file in sorted(args.actions_dir.glob("*.yaml")):
-            try:
-                await validate_action_file(args.cdp_port, action_file, params_override, out_dir)
-            except Exception as e:
-                print(f"[{action_file.stem}] ERROR: {e}")
-    elif args.action:
-        await validate_action_file(args.cdp_port, args.action, params_override, args.out_dir)
-    else:
-        parser.error("Provide --action or --actions-dir")
+    # Use direct async-with nesting of stdio_client and ClientSession.
+    # This guarantees __aexit__ runs in the same task as __aenter__,
+    # avoiding the cancel-scope bug that occurs when openai-agents'
+    # MCPServerStdio pushes both into an AsyncExitStack.
+    from mcp.client.stdio import stdio_client, StdioServerParameters
+    from mcp.client.session import ClientSession
+
+    server_params = StdioServerParameters(
+        command="npx",
+        args=["@playwright/mcp", "--cdp-endpoint", f"http://127.0.0.1:{args.cdp_port}"],
+    )
+
+    async with stdio_client(server_params) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            browser = _SimpleBrowser(session)
+
+            if args.actions_dir:
+                out_dir = args.out_dir or args.actions_dir.parent / "code_evals"
+                for action_file in sorted(args.actions_dir.glob("*.yaml")):
+                    try:
+                        await validate_action_file(browser, action_file, params_override, out_dir)
+                    except Exception as e:
+                        print(f"[{action_file.stem}] ERROR: {e}")
+            elif args.action:
+                await validate_action_file(browser, args.action, params_override, args.out_dir)
+            else:
+                parser.error("Provide --action or --actions-dir")
 
 
 if __name__ == "__main__":
