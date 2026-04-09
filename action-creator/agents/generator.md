@@ -93,7 +93,9 @@ The file path will be provided in your prompt.
 
 - One action per meaningful scenario interaction pattern
 - Name: `check_fortune`, `convert_currency`, `search_news` — reflect the scenario
-- `description`: what the action does, in the site's language
+- `description`: what the action does, in **English** (primary language)
+- `description_ko`: Korean translation of the description (always required)
+- `params.*.description`: in **English**; add `description_ko` for Korean translation
 - `auto_generated: true`, `created_at`: current ISO8601 timestamp
 - Selectors: minimum 2-3 strategies per element (role_name + tree_path/relative)
 - Do NOT execute destructive steps (delete, remove, cancel)
@@ -113,4 +115,4 @@ Per scenario: ~1 navigate + 1 snapshot + 2-3 writes + 1 per custom widget.
 Do not re-visit pages already covered. Stop when scenarios are complete.
 
 Use `playwright-cli -s=$SESSION snapshot` (text) only — no screenshots.
-Match the site's language for action names, descriptions, and param descriptions.
+Write `description` and `params.*.description` in English. Always include `description_ko` and `params.*.description_ko` with Korean translations.

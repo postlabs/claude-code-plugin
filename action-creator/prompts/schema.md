@@ -6,7 +6,8 @@ Each action is a top-level key in actions.yaml. The key is the action name (snak
 
 ```yaml
 action_name:
-  description: "Human-readable description of what this action does"
+  description: "English description of what this action does"
+  description_ko: "한글 설명"              # Korean translation (always required)
   url: "https://example.com/page"        # Optional: target URL
   auto_generated: true                    # Always true for Action Creator
   created_at: "2026-04-02T12:00:00Z"     # ISO8601 timestamp
@@ -15,7 +16,8 @@ action_name:
       type: string                        # string | number | boolean | integer
       required: true                      # true | false
       default: null                       # Optional default value
-      description: "What this param is"   # Optional description
+      description: "What this param is (English)"
+      description_ko: "파라미터 한글 설명"  # Korean translation
   steps:                                  # List of execution steps
     - action: click
       selector: ...
@@ -40,7 +42,8 @@ Actions that produce data (extract_text, extract_list) SHOULD define an `output`
 ```yaml
 # Example: action that produces a list
 list_top_gainers:
-  description: "급등주 상위 종목 목록 추출"
+  description: "Extract top gainer stock list"
+  description_ko: "급등주 상위 종목 목록 추출"
   output:
     type: list
     fields: [stock_name, price, change_rate]
@@ -50,7 +53,8 @@ list_top_gainers:
 
 # Example: action that consumes output via param
 get_stock_news:
-  description: "특정 종목의 뉴스 목록 추출"
+  description: "Extract news list for a specific stock"
+  description_ko: "특정 종목의 뉴스 목록 추출"
   params:
     stock_name:
       type: string
@@ -128,6 +132,10 @@ If you are filling a form field that requires unique data every time (like an em
   target_ref: e801                        # ref of the CONTAINER (list, table, etc.)
   limit: 20                               # Optional: max items
 ```
+
+**Scroll before extract:** If the page uses lazy loading or infinite scroll
+(e.g., product grids, news feeds), add a `scroll` step before `extract_list`
+to load more items. Skip scroll for small fixed lists (e.g., TOP 10 rankings).
 
 #### wait — Wait for an element to appear or a condition to be met
 ```yaml
@@ -268,6 +276,7 @@ search_products:
 ```yaml
 search_inbox:
   description: "Search emails by keyword"
+  description_ko: "키워드로 이메일 검색"
   auto_generated: true
   created_at: "2026-04-02T12:00:00Z"
   params:
@@ -275,6 +284,7 @@ search_inbox:
       type: string
       required: true
       description: "Search keyword"
+      description_ko: "검색 키워드"
   steps:
     - action: fill
       target_ref: e42              # textbox "Search mail"
@@ -287,6 +297,7 @@ search_inbox:
 
 list_inbox:
   description: "List all emails in inbox"
+  description_ko: "받은편지함 이메일 목록 조회"
   auto_generated: true
   created_at: "2026-04-02T12:00:00Z"
   steps:
@@ -296,6 +307,7 @@ list_inbox:
 
 submit_compose:
   description: "Compose and send a new email"
+  description_ko: "새 이메일 작성 및 발송"
   auto_generated: true
   created_at: "2026-04-02T12:00:00Z"
   params:
@@ -303,14 +315,17 @@ submit_compose:
       type: string
       required: true
       description: "Recipient email address"
+      description_ko: "수신자 이메일 주소"
     subject:
       type: string
       required: true
       description: "Email subject"
+      description_ko: "이메일 제목"
     body:
       type: string
       required: true
       description: "Email body"
+      description_ko: "이메일 본문"
   steps:
     - action: click
       target_ref: e10              # button "Compose"
@@ -331,7 +346,8 @@ submit_compose:
 
 ```yaml
 check_fortune:
-  description: "네이버 오늘의 운세 확인 (성별, 생년월일 입력 → 운세 결과)"
+  description: "Check today's fortune on Naver (input gender, birthdate → fortune result)"
+  description_ko: "네이버 오늘의 운세 확인 (성별, 생년월일 입력 → 운세 결과)"
   url: "https://search.naver.com/search.naver?query=오늘의+운세"
   auto_generated: true
   created_at: "2026-04-03T00:55:00Z"
@@ -340,20 +356,24 @@ check_fortune:
       type: string
       required: true
       default: "남성"
-      description: "성별 (남성/여성)"
+      description: "Gender (남성/여성)"
+      description_ko: "성별 (남성/여성)"
     year:
       type: string
       required: true
-      description: "출생 년도 (e.g., 1990)"
+      description: "Birth year (e.g., 1990)"
+      description_ko: "출생 년도 (e.g., 1990)"
     month:
       type: string
       required: true
-      description: "출생 월 (e.g., 3)"
+      description: "Birth month (e.g., 3)"
+      description_ko: "출생 월 (e.g., 3)"
     day:
       type: string
       required: true
       default: "1"
-      description: "출생 일 (e.g., 15)"
+      description: "Birth day (e.g., 15)"
+      description_ko: "출생 일 (e.g., 15)"
   steps:
     - action: navigate
       url: "https://search.naver.com/search.naver?query=오늘의+운세"

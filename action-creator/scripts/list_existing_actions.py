@@ -67,6 +67,8 @@ def list_actions(domain: str, web_dough_dir: Path) -> list[dict]:
                 entry = {"name": name}
                 if action.get("description"):
                     entry["description"] = action["description"]
+                if action.get("description_ko"):
+                    entry["description_ko"] = action["description_ko"]
                 if action.get("steps"):
                     entry["step_count"] = len(action["steps"])
                 results.append(entry)
