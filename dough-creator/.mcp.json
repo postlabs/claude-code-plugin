@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "peel": {
+      "command": "cmd",
+      "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\vendor\\peel\\run_peel.cmd"],
+      "env": {
+        "PEEL_BASE_URL": "http://127.0.0.1:18587/api/v1",
+        "PEEL_LOCALE": "en",
+        "PEEL_BAKE_TIMEOUT": "600"
+      }
+    }
+  }
+}

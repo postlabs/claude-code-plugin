@@ -78,6 +78,16 @@
       "description": "Sprint-based multi-agent pipeline for website automation action generation",
       "version": "0.3.5",
       "category": "workflow"
+    },
+    {
+      "name": "dough-creator",
+      "source": "./dough-creator",
+      "description": "Build Toast automations from natural language — composes doughs, authors agent flours, creates full kits with Python tools",
+      "version": "0.1.0",
+      "category": "development",
+      "author": {
+        "name": "Postlabs"
+      }
     }
   ]
 }
