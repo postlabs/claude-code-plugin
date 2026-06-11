@@ -5,6 +5,27 @@ description: How to author a Toast kit — Python tools + tool flours — and bi
 
 # Authoring a Toast kit
 
+## Cut kits by capability axis, not by request
+
+A kit is a LIBRARY (think Python package), and one request usually decomposes
+into more than one library. Before writing kit.yaml, split what you're about
+to build along these axes:
+
+- **Reach vs compute.** A tool that touches the world (HTTP fetch, disk) and a
+  pure computation that could consume data from ANY source belong in SEPARATE
+  kits — the compute kit takes the data as an input and stays reusable when
+  the data source changes.
+- **Vendor-neutral naming.** Never name a compute kit after a data vendor
+  (`binance_strategy_lab` for source-agnostic backtesting is wrong; the fetch
+  kit may carry the vendor name, the analysis kit may not).
+- **Producer vocabulary only.** A tool's outputs describe its OWN domain.
+  Mapping to another surface's vocabulary — chart-library study names, URL/pair
+  formats for some website, display labels — belongs in the consuming kit or
+  the user recipe, never in the producer's return shape.
+
+Small kits are fine: a 1-flour fetch kit is a correct library, not an
+under-built one.
+
 A **kit** is the only artifact that ships Python. It is a directory:
 
 ```
@@ -83,11 +104,24 @@ the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare),
    loader binds the symbol named in `action.tool:` and calls it with decoded
    kwargs only.
 5. **One tool = one primitive.** An HTTP call, a disk op, a parse, a pure
-   computation over its inputs. **Never orchestrate inside a tool** — a
-   function that fetches AND computes AND writes is a pipeline hiding from the
-   engine; ship the primitives as separate tools and wire them in a
-   composition dough instead. (Same-kit *computation* may compose — a tool may
-   call sibling pure functions — but reach operations never stack.)
+   computation over its inputs. **Never orchestrate inside a tool**, and
+   "orchestration" includes pure compute:
+   - A function that fetches AND computes AND writes is a pipeline hiding
+     from the engine — ship the primitives, wire them in a composition.
+   - A tool that ITERATES over a caller-visible list of work items
+     (strategies, files, symbols) hides an `each:` from the engine — ship
+     the per-item primitive (`run_strategy(candles, strategy)`) and let the
+     composition fan out.
+   - A tool that returns several independently-useful results (levels AND
+     per-strategy stats AND a best-pick AND an assembled report) is several
+     tools — one primitive per result, plus at most a thin `assemble_*`
+     reshaper at the end.
+   - Judgment calls (which result is "best", what to display) belong in a
+     composition step — an agent flour or a user-visible input — not buried
+     in tool Python.
+   A tool may still call sibling pure HELPER functions (a backtest calling
+   its simulator is one primitive); the test is whether the engine — and the
+   user reading the steps — can see the workflow's moving parts.
 6. **Per-profile storage:** `from _core.profile import profile_dir` and use a
    kit-private subdir — `profile_dir() / "my_kit_store"`. There is NO injected
    `ctx` object (older docs mentioning `ctx.workspace_dir` are phantom).
@@ -147,8 +181,11 @@ return:
 
 ## The build loop (no backend restart, ever)
 
-Work in a scratch directory OUTSIDE the Toast repo. Then drive the lifecycle
-API via the plugin script:
+Author the kit at its PERMANENT home — `{profiles_root}/<profile>/kits/<kit_id>/`
+(the third-party kit source root; toast_env.py reports the profiles). Never a
+session scratch dir: `reload` re-imports from the ORIGINAL source path, so a
+kit authored in scratch becomes unmodifiable once the session ends. Then drive
+the lifecycle API via the plugin script:
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py install <kit_dir>   # first bind
@@ -178,6 +215,24 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py reload my_kit       # hot-
 (the `to:` mapping or return shape is wrong), `each_not_list`/`all_not_list`
 (a ref didn't resolve to a list), `provider_not_connected` (missing
 connect.py — see rule 3.4). Never guess from the prose message alone.
+For a LARGE donut, don't pull the whole thing through recall — read the
+persisted donut JSON from the profile and extract the keys you need.
+
+## Troubleshooting: install/bind failures (one root cause, many faces)
+
+| Symptom | Meaning |
+|---|---|
+| install → 400 "Failed to load kit — check kit.yaml" | usually NOT the yaml |
+| bake → "Tool not found: '<kit>.<tool>' — no kit registered" | same cause |
+| reload → "Kit not found" | same cause |
+
+Root cause (verified): the backend's ACTIVE profile (JWT-derived when logged
+in) differs from the profile whose doughs dir is on sys.path — the install
+copies your kit where Python can't import it. `kit_lifecycle.py install`
+auto-verifies binding and prints this hint; the workaround is copying the kit
+source under EVERY `{profiles}/<key>/doughs/<kit_id>/` and installing again.
+Write user doughs into every profile's `user/` dir too when
+`toast_env.py` reports `active_profile_ambiguous: true`.
 
 ## Promotion (separate, later step — not part of /create)
 
