@@ -1,9 +1,10 @@
-"""Preflight for dough-creator: is the Toast backend up?
+"""Preflight for dough-creator: detect the run tier.
 
 Stdlib only — runs on any Python 3. Prints a single JSON object:
 
     {
       "backend_up": true,
+      "tier": "connected",
       "base_url": "http://127.0.0.1:18587/api/v1",
       "diagnostics": {
         "profiles": ["local", "5ca3000af7e4"],
@@ -12,9 +13,13 @@ Stdlib only — runs on any Python 3. Prints a single JSON object:
       }
     }
 
-backend_up + base_url are the contract. v0.3 NEVER writes into profile
-directories by path — cwd is the source of truth: user doughs go through
-dough_publish.py (API), kits through kit_lifecycle.py install (API).
+backend_up + tier + base_url are the contract. "tier" is "connected" when
+the Toast backend answers /health, "standalone" when it does not.
+Standalone is a SUPPORTED tier, not a failure: the creator continues with
+offline validation + direct tool unit runs and DEFERS publish/bake (see
+commands/create.md, "Standalone tier"). The plugin NEVER writes into
+profile directories by path — cwd is the source of truth: user doughs go
+through dough_publish.py (API), kits through kit_lifecycle.py install (API).
 
 The "diagnostics" block exists ONLY for the kit-install troubleshooting path.
 GOTCHA (verified 2026-06-11): the backend's ACTIVE profile is process-internal
@@ -31,8 +36,8 @@ Resolution order for the profiles root (diagnostics only):
   2. %APPDATA%/Toast/profiles   (installed app, current brand)
   3. %APPDATA%/Mojo/profiles    (pre-rebrand installs)
 
-Exit code 0 when the backend is reachable, 1 when it is not (the creator
-must stop and tell the user to start Toast).
+Exit code 0 in BOTH tiers (standalone is not an error); 1 only on
+unexpected internal errors.
 """
 from __future__ import annotations
 
@@ -78,6 +83,7 @@ def main() -> int:
     doughs = {p: os.path.join(root, p, "doughs") for p in profiles} if root else {}
     print(json.dumps({
         "backend_up": up,
+        "tier": "connected" if up else "standalone",
         "base_url": BASE_URL,
         "diagnostics": {
             "profiles": profiles,
@@ -85,8 +91,12 @@ def main() -> int:
             "doughs_dirs": doughs,
         },
     }))
-    return 0 if up else 1
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:  # unexpected only — tier detection never raises
+        print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
+        sys.exit(1)

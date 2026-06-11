@@ -210,6 +210,37 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py reload my_kit       # hot-
 - `uninstall` removes a non-bundled kit cleanly (bundled kits → 403).
 - **Done = a real bake ran green**, not validation alone.
 
+## Standalone (Tier 1 — no backend)
+
+Authoring is IDENTICAL — same layout, same rules, including rule 3.4: still
+ship `auth.category: local` + `connect.py`. They matter only at INSTALL time
+(Tier 2); `connect.py` is runtime-only and is never executed by unit runs,
+so a missing/odd one won't surface standalone — write it correctly now or
+the first connected install fails.
+
+The build loop's install/reload/bake is replaced by direct unit runs:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/tool_runner.py <kit_dir> <tool_symbol> --inputs '<json kwargs>'
+```
+
+(symbols outside tools.py take the `<file>.py:<symbol>` form; see `--help`)
+
+- Unit-run EVERY tool with realistic inputs; check the returned dict against
+  each flour's `to:` mapping and `outputs:` keys — `output_shape_mismatch`
+  is the bug class this catches before any engine exists.
+- The runner stubs `_core` (tiny shim, enough for unit execution). **Store
+  kits** — anything calling `_core.profile.profile_dir()` — need
+  `TOAST_STORE_DIR` set to a scratch dir inside the workspace so the stub
+  has a place to write. Never point it at a Toast profile path.
+- Flour YAML goes through `offline_validate.py` like any dough (verb
+  vocabulary and `model:` refs are load-time checks, so a bad verb still
+  only surfaces at the first connected install — double-check the verb
+  against the closed list above).
+- Record results in `./<slug>/provenance.yaml`; the kit binds via
+  `kit_lifecycle.py install` on the next connected run and stays
+  engine-UNVERIFIED until a real bake runs green.
+
 ## Debugging a failed bake
 
 `peel recall(dough_id=...)` returns the donut. Read `error_code` first:

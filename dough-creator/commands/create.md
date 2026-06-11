@@ -41,10 +41,51 @@ never guess profile paths — kits enter Toast via `kit_lifecycle.py install
 
 ## 0. Preflight (always first)
 
-Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/toast_env.py`. This is a health
-check: if `backend_up` is false, STOP and tell the user to start the Toast
-app — nothing works without it. The profile listing in its output is
-diagnostics for kit-install troubleshooting only — never a write target.
+Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/toast_env.py`. Its `tier` field
+sets the run mode — state it to the user in one line and CONTINUE either way:
+
+- `connected` — the Toast backend is up; the full flow below applies as
+  written (publish IS validation, real bakes verify).
+- `standalone` — no backend. Do NOT stop. Run the same steps 1–7 with the
+  substitutions in **Standalone tier (no Toast)** below: offline validation
+  and direct unit runs replace publish/bake, which are deferred.
+
+The profile listing in its output is diagnostics for kit-install
+troubleshooting only — never a write target.
+
+## Standalone tier (no Toast)
+
+Same workspace, same authoring rules, same artifacts — only discovery and
+verification change. Everything authored standalone publishes unchanged the
+moment a backend is reachable.
+
+- **Discovery without peel.** peel (`find_doughs` / `dough_spec` /
+  `list_capabilities`) needs the backend. Compose against artifacts in THIS
+  workspace plus well-known floor capabilities (`basic.*`,
+  `webengine.browser.*`, `thinking.*`) only. Any step that assumes an
+  external capability you cannot inspect (a vendor flour's exact schema)
+  must be flagged as an explicit warning in the final report — never wire
+  against a remembered schema silently.
+- **Verification ladder** (replaces publish + test-bake; run top down,
+  every rung that applies):
+  1. `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <dough_dir>`
+     — parse + static rules + box checks on the vendored engine validator.
+     A dough that fails to parse is reported as parse ERRORS (never "0
+     issues"); refs to flours outside the workspace come back as WARNINGS,
+     not errors.
+  2. `python ${CLAUDE_PLUGIN_ROOT}/scripts/tool_runner.py` — unit-run every
+     authored kit tool directly with realistic inputs; check the return
+     dict against the flour's `to:` mapping and `outputs:` keys.
+  3. Agent-flour dry-run — execute the flour's prompt YOURSELF on sample
+     input and check the output shape against its `outputs:` schema.
+  4. `eval_js` dry-run — when Playwright browser tools are available, open
+     the target page and run the generated JS there.
+- **Publish/bake are DEFERRED, not skipped.** Tell the user plainly: the
+  artifacts are statically + unit verified but UNVERIFIED on a real engine;
+  that status (per artifact, with the vendored validator's version stamp)
+  is recorded in `./<slug>/provenance.yaml`; and they become publishable
+  the moment a Toast backend is reachable — re-run `/create`, or run
+  `dough_publish.py publish` / `kit_lifecycle.py install` directly, then.
 
 ## 1. Clarify
 
@@ -120,6 +161,11 @@ the user's handle on what they now own).
 
 ## 6. Verify — green or it doesn't ship
 
+**Standalone tier:** the verification ladder above replaces this section —
+run it to the bottom, then record each artifact's reached level (and the
+vendored validator's stamp) in `./<slug>/provenance.yaml` as
+engine-UNVERIFIED. The rest of this section is the connected-tier bar.
+
 For every authored unit:
 1. A clean `publish` already validated it; run peel `validate_dough` for
    re-checks until clean (each error's `hint` is a directive).
@@ -132,13 +178,24 @@ For every authored unit:
 4. Repeat until the end-to-end bake succeeds.
 
 Do not report success on validation alone — a real bake must have run green.
+(A connected-tier green bake also upgrades the artifact's `provenance.yaml`
+record to engine-VERIFIED, if a provenance file exists from an earlier
+standalone run.)
 
 ## 7. Report
 
 Tell the user what was built, in their language and their terms: what the
-automation does, what inputs it takes, and that it is now visible in their
-Toast app. Tell them WHERE the sources live — `./<slug>/` in this project is
-their owned copy: visible, versionable, and the place to edit (edits flow
-back via publish/reload). Name the automation's slug; note it can be removed
-cleanly if they change their mind (`dough_publish.py delete <dough_id>` for
-doughs, `kit_lifecycle.py uninstall <kit_id>` for a created kit).
+automation does, what inputs it takes, and — **connected tier** — that it is
+now visible in their Toast app. Tell them WHERE the sources live —
+`./<slug>/` in this project is their owned copy: visible, versionable, and
+the place to edit (edits flow back via publish/reload). Name the
+automation's slug; note it can be removed cleanly if they change their mind
+(`dough_publish.py delete <dough_id>` for doughs, `kit_lifecycle.py
+uninstall <kit_id>` for a created kit).
+
+**Standalone tier instead:** report that the artifacts are statically + unit
+verified but UNVERIFIED on a real engine (as recorded in
+`./<slug>/provenance.yaml`), list any external-capability warnings from
+discovery, and say exactly how to finish: start Toast, then re-run `/create`
+(or `dough_publish.py publish` / `kit_lifecycle.py install` directly) to
+publish and bake-verify.

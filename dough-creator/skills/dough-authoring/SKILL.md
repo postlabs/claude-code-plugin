@@ -102,3 +102,24 @@ structured; keep it small; plain `string` needs none.
 4. Test-bake with realistic inputs; on failure `recall` the donut and read
    `error_code` before changing anything. Done = a real bake ran green, not
    validation alone.
+
+### Standalone (Tier 1 — no backend)
+
+Same authoring, different gate. When `toast_env.py` reports
+`tier: standalone`:
+
+- peel is down, so the live build guide (`dough_spec` on
+  `thinking.guide_build`) is unreachable — author from this skill's rules
+  and ground truths alone.
+- Steps 3–4 become
+  `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <dough_dir>` —
+  the same engine validator, vendored. Two semantics to know: a dough that
+  fails to PARSE is reported as parse errors (the wrapper surfaces pydantic
+  issues itself — never read an unparseable dough as "0 issues"), and refs
+  to flours not present in the workspace are downgraded to WARNINGS
+  (there is no backend store to confirm them) — carry every such warning
+  into the final report.
+- No test-bake. The bar is the standalone verification ladder in `/create`;
+  record the level reached per artifact in `./<slug>/provenance.yaml` —
+  the dough stays engine-UNVERIFIED until a connected run publishes and
+  bakes it green.
