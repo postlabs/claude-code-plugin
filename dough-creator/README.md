@@ -76,6 +76,8 @@ both. Each tier is a verification guarantee level recorded per artifact:
 
 ```
 commands/create.md            /create orchestration (tier-aware)
+commands/publish.md           /publish — register a workspace into Toast: kits install/reload,
+                              doughs publish, verification bakes, provenance → VERIFIED
 skills/kit-authoring/         kit contract (tools.py rules, kit.yaml, lifecycle loop)
 skills/dough-authoring/       dough/flour authoring (fetches Toast's live build guide)
 scripts/toast_env.py          preflight: tier detection (connected/standalone) + profile diagnostics

@@ -84,8 +84,9 @@ moment a backend is reachable.
   artifacts are statically + unit verified but UNVERIFIED on a real engine;
   that status (per artifact, with the vendored validator's version stamp)
   is recorded in `./<slug>/provenance.yaml`; and they become publishable
-  the moment a Toast backend is reachable — re-run `/create`, or run
-  `dough_publish.py publish` / `kit_lifecycle.py install` directly, then.
+  the moment a Toast backend is reachable — run `/dough-creator:publish`
+  then: it registers the whole workspace, runs the verification bakes, and
+  upgrades provenance to VERIFIED in one pass.
 
 ## 1. Clarify
 

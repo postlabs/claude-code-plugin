@@ -1,5 +1,5 @@
 {
   "name": "dough-creator",
   "description": "Build Toast automations from natural-language requests — composes doughs, authors agent flours, and creates full kits (Python tools) when no existing capability covers the request",
-  "version": "0.4.0"
+  "version": "0.4.1"
 }

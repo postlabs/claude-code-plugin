@@ -122,4 +122,5 @@ Same authoring, different gate. When `toast_env.py` reports
 - No test-bake. The bar is the standalone verification ladder in `/create`;
   record the level reached per artifact in `./<slug>/provenance.yaml` —
   the dough stays engine-UNVERIFIED until a connected run publishes and
-  bakes it green.
+  bakes it green (`/dough-creator:publish` does the whole pass: register →
+  verification bakes → provenance upgrade to VERIFIED).
