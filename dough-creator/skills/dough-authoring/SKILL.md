@@ -21,10 +21,25 @@ conflict).
 
 ## Where files go
 
-User-authored units live at `{user_doughs_dir}/<slug>/` — that is
-`{profile}/doughs/user/`, resolved by `scripts/toast_env.py`. Id is exactly
-`user.<slug>`, two segments, no nesting. Every `dough.yaml` needs a sibling
-`box.yaml`. YAML written there is picked up live — no restart, no install call.
+Author in the SESSION CWD, never in a Toast profile directory:
+`./<automation_slug>/doughs/<dough_slug>/` holding `dough.yaml` + a sibling
+`box.yaml` (engine file format). The cwd is the source of truth — visible
+and versionable by the user. Id is exactly `user.<slug>`, two segments, no
+nesting.
+
+Publishing goes through the API, not the filesystem:
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/dough_publish.py publish <dough_dir> [--draft]
+```
+
+POST for new ids, PUT for existing (the script checks). A 422 response
+carries the validator's issues — fix the YAML in cwd and republish;
+publishing IS validation. `--draft` parks a half-wired state. The modify
+flow is `pull <dough_id> <dest_dir>` → edit → `publish` — never edit or
+write files under a profile directly. Prefer the original cwd source when it
+exists: pull is lossy on labels (the backend persists only en name/about;
+per-key descriptions and other locales come back regenerated).
 
 ## The two shapes you may author
 
@@ -80,9 +95,10 @@ structured; keep it small; plain `string` needs none.
 1. Discover first: `find_doughs` (by namespace when the vendor is known, by
    verb otherwise) → `dough_spec` every flour you will call. Wire against the
    real `inputs:`/`outputs:` — never from memory. Copy ids verbatim.
-2. Write `dough.yaml` + `box.yaml` under `user/<slug>/`.
-3. `validate_dough(dough_id="user.<slug>")` until clean — every error's `hint`
-   is a directive, do what it says.
+2. Write `dough.yaml` + `box.yaml` under `./<automation_slug>/doughs/<dough_slug>/`.
+3. `dough_publish.py publish <dough_dir>` until it saves clean — a 422 returns
+   the validator's issues and every issue's `hint` is a directive, do what it
+   says. Fix in cwd, republish.
 4. Test-bake with realistic inputs; on failure `recall` the donut and read
    `error_code` before changing anything. Done = a real bake ran green, not
    validation alone.

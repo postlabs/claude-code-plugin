@@ -1,25 +1,32 @@
-"""Preflight for dough-creator: is the Toast backend up, and where do doughs live?
+"""Preflight for dough-creator: is the Toast backend up?
 
 Stdlib only — runs on any Python 3. Prints a single JSON object:
 
     {
       "backend_up": true,
       "base_url": "http://127.0.0.1:18587/api/v1",
-      "profiles": ["local", "5ca3000af7e4"],
-      "active_profile_ambiguous": true,
-      "doughs_dirs": {"local": "...\\profiles\\local\\doughs", ...},
-      "user_doughs_dirs": {"local": "...\\profiles\\local\\doughs\\user", ...}
+      "diagnostics": {
+        "profiles": ["local", "5ca3000af7e4"],
+        "active_profile_ambiguous": true,
+        "doughs_dirs": {"local": "...\\profiles\\local\\doughs", ...}
+      }
     }
 
+backend_up + base_url are the contract. v0.3 NEVER writes into profile
+directories by path — cwd is the source of truth: user doughs go through
+dough_publish.py (API), kits through kit_lifecycle.py install (API).
+
+The "diagnostics" block exists ONLY for the kit-install troubleshooting path.
 GOTCHA (verified 2026-06-11): the backend's ACTIVE profile is process-internal
 and NOT exposed by any API. When the user is logged in, the active profile is a
 JWT-derived key (e.g. 5ca3000af7e4), NOT "local" — and the kit install API
 copies into the ACTIVE profile while sys.path may be registered on another.
-When more than one profile exists, `active_profile_ambiguous` is true: write
-user doughs into EVERY listed user_doughs_dir, and after a kit install VERIFY
-the kit actually binds (kit_lifecycle.py install does this automatically).
+When a kit installs but its tools do not bind (kit_lifecycle.py install
+verifies this), the workaround is to copy the kit source under EVERY listed
+{doughs_dir}/<kit_id>/ and install again. Never use these paths to choose
+write locations for doughs.
 
-Resolution order for the profiles root:
+Resolution order for the profiles root (diagnostics only):
   1. TOAST_PROFILES_DIR env var (explicit override)
   2. %APPDATA%/Toast/profiles   (installed app, current brand)
   3. %APPDATA%/Mojo/profiles    (pre-rebrand installs)
@@ -72,10 +79,11 @@ def main() -> int:
     print(json.dumps({
         "backend_up": up,
         "base_url": BASE_URL,
-        "profiles": profiles,
-        "active_profile_ambiguous": len(profiles) > 1,
-        "doughs_dirs": doughs,
-        "user_doughs_dirs": {p: os.path.join(d, "user") for p, d in doughs.items()},
+        "diagnostics": {
+            "profiles": profiles,
+            "active_profile_ambiguous": len(profiles) > 1,
+            "doughs_dirs": doughs,
+        },
     }))
     return 0 if up else 1
 

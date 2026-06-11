@@ -181,11 +181,13 @@ return:
 
 ## The build loop (no backend restart, ever)
 
-Author the kit at its PERMANENT home — `{profiles_root}/<profile>/kits/<kit_id>/`
-(the third-party kit source root; toast_env.py reports the profiles). Never a
-session scratch dir: `reload` re-imports from the ORIGINAL source path, so a
-kit authored in scratch becomes unmodifiable once the session ends. Then drive
-the lifecycle API via the plugin script:
+Author the kit at its PERMANENT home — `./<automation_slug>/kits/<kit_id>/`
+inside the session cwd. The user's project IS the kit's permanent source:
+visible, versionable, and the path `reload` re-imports from. Never author in
+a throwaway scratch dir, and never write into a Toast profile yourself —
+`install` hands the cwd path to the backend, which copies into ITS active
+profile; the edit loop stays "edit cwd → reload". Then drive the lifecycle
+API via the plugin script:
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py install <kit_dir>   # first bind
@@ -201,10 +203,10 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py reload my_kit       # hot-
 
 - `install` copies the dir into `{profile}/doughs/<kit-id-as-path>/` and binds
   tools immediately. Re-installing an already-loaded id returns 409 — `reload`.
-- `reload` re-imports from the kit's source dir. A failed reload leaves the
-  kit UNLOADED — fix the import error and reload again.
-- flour/box YAML edits inside `{profile}/doughs/` are picked up live; `reload`
-  is only needed for Python changes.
+- `reload` re-imports from the kit's cwd source dir. A failed reload leaves
+  the kit UNLOADED — fix the import error and reload again.
+- Edit in the cwd source, then `reload` — the backend serves its installed
+  copy, never edit a profile copy directly.
 - `uninstall` removes a non-bundled kit cleanly (bundled kits → 403).
 - **Done = a real bake ran green**, not validation alone.
 
@@ -230,14 +232,16 @@ Root cause (verified): the backend's ACTIVE profile (JWT-derived when logged
 in) differs from the profile whose doughs dir is on sys.path — the install
 copies your kit where Python can't import it. `kit_lifecycle.py install`
 auto-verifies binding and prints this hint; the workaround is copying the kit
-source under EVERY `{profiles}/<key>/doughs/<kit_id>/` and installing again.
-Write user doughs into every profile's `user/` dir too when
-`toast_env.py` reports `active_profile_ambiguous: true`.
+source under EVERY `{profiles}/<key>/doughs/<kit_id>/` and installing again
+(`toast_env.py` profile enumeration exists ONLY for this diagnostic path —
+never to choose authoring locations). User doughs are unaffected: they go
+through the publish API (`dough_publish.py`), which always targets the
+backend's active profile.
 
 ## Promotion (separate, later step — not part of /create)
 
-A kit born here lands as a third-party kit under `{profile}/kits/`. Promoting
-it to an official bundled kit means moving the source into the Toast repo's
+A kit born here lives in the user's project and loads as a third-party kit.
+Promoting it to an official bundled kit means moving the source into the Toast repo's
 `src/backend/kits/`, running `scripts/repair_flour_entries.py --check` and
 `scripts/generate_kit_hashes.py`, and going through review. Do not do this
 inside a /create run.
