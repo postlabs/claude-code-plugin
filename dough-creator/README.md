@@ -76,15 +76,20 @@ verification levels, recorded per artifact in `./<slug>/provenance.yaml`:
 
 ## Requirements
 
-- **`/create` (build):** no Toast — a Python with `pydantic` and
-  `ruamel.yaml` covers offline validation and tool unit runs.
-- **`/test` + `/publish`:** Toast app installed and **running** (each
-  preflights this and stops if it is down).
-- A Python with `mcp`, `httpx`, `httpx-sse` for the peel server. Resolution
-  order in `vendor/peel/run_peel.cmd`: `TOAST_PYTHON` env → Toast dev repo's
-  embedded Python → `python` on PATH. `dough_publish.py` runs on the same
-  interpreter (it needs `ruamel.yaml`, which the embedded Toast Python
-  ships; on ImportError it prints what to install).
+You bring the Python. Everything runs on the interpreter on your `PATH` (or one
+you point `TOAST_PYTHON` at) — the plugin never assumes a Toast/mojo checkout.
+What each command needs of it:
+
+- **`/create` (build):** `pydantic` + `ruamel.yaml` — offline validation and
+  tool unit runs. No Toast.
+- **`/test` + `/publish`:** the Toast app installed and **running**, plus
+  `mcp` + `httpx` + `httpx-sse` on the interpreter (the peel MCP server). If a
+  dep is missing the relevant tools just don't work, with a message saying
+  what to install (`pip install pydantic ruamel.yaml mcp httpx httpx-sse`).
+
+`run_peel.cmd` resolves the interpreter as `TOAST_PYTHON` env → `python` on
+PATH. Set `TOAST_PYTHON` to a Toast install's bundled Python if you'd rather
+not install the deps yourself.
 
 ## Layout
 
