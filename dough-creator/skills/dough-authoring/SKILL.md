@@ -90,37 +90,26 @@ input feels big, add a kit tool that condenses it first. Outputs: an
 `object`/`list` agent output needs an inline `schema:` to come back
 structured; keep it small; plain `string` needs none.
 
-## The loop
+## The loop (this skill is the BUILD step — authoring only)
 
-1. Discover first: `find_doughs` (by namespace when the vendor is known, by
-   verb otherwise) → `dough_spec` every flour you will call. Wire against the
-   real `inputs:`/`outputs:` — never from memory. Copy ids verbatim.
-2. Write `dough.yaml` + `box.yaml` under `./<automation_slug>/doughs/<dough_slug>/`.
-3. `dough_publish.py publish <dough_dir>` until it saves clean — a 422 returns
-   the validator's issues and every issue's `hint` is a directive, do what it
-   says. Fix in cwd, republish.
-4. Test-bake with realistic inputs; on failure `recall` the donut and read
-   `error_code` before changing anything. Done = a real bake ran green, not
-   validation alone.
+1. Discover: when the backend is up, `find_doughs` (by namespace when the
+   vendor is known, by verb otherwise) → `dough_spec` every flour you will
+   call; wire against the real `inputs:`/`outputs:`, never from memory, copy
+   ids verbatim. When the backend is down, the live build guide and peel are
+   unreachable — author from this skill's rules + ground truths, compose
+   against workspace artifacts + floor capabilities (`basic.*`,
+   `webengine.browser.*`, `thinking.*`), and flag every external-capability
+   assumption as a warning for the report.
+2. Write `dough.yaml` + `box.yaml` under
+   `./<automation_slug>/doughs/<dough_slug>/`.
+3. Static-validate:
+   `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <dough_dir>` —
+   the same engine validator, vendored, no backend needed. Every issue's
+   `hint` is a directive; fix in cwd and re-run. Two semantics: a dough that
+   fails to PARSE is reported as parse errors (never read an unparseable
+   dough as "0 issues"), and refs to flours outside the workspace come back
+   as WARNINGS — carry them into the report.
 
-### Standalone (Tier 1 — no backend)
-
-Same authoring, different gate. When `toast_env.py` reports
-`tier: standalone`:
-
-- peel is down, so the live build guide (`dough_spec` on
-  `thinking.guide_build`) is unreachable — author from this skill's rules
-  and ground truths alone.
-- Steps 3–4 become
-  `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <dough_dir>` —
-  the same engine validator, vendored. Two semantics to know: a dough that
-  fails to PARSE is reported as parse errors (the wrapper surfaces pydantic
-  issues itself — never read an unparseable dough as "0 issues"), and refs
-  to flours not present in the workspace are downgraded to WARNINGS
-  (there is no backend store to confirm them) — carry every such warning
-  into the final report.
-- No test-bake. The bar is the standalone verification ladder in `/create`;
-  record the level reached per artifact in `./<slug>/provenance.yaml` —
-  the dough stays engine-UNVERIFIED until a connected run publishes and
-  bakes it green (`/dough-creator:publish` does the whole pass: register →
-  verification bakes → provenance upgrade to VERIFIED).
+That is the authoring bar. **Running it on the real engine — the test-bake,
+the repair loop, "done = a real bake ran green" — is `/dough-creator:test`,
+not this step.** Author so it WILL bake; do not bake here.

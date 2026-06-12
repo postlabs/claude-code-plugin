@@ -1,95 +1,64 @@
 ---
-description: Register a workspace's authored automations into a running Toast — install kits, publish doughs, run verification bakes, and upgrade provenance to VERIFIED
+description: Deploy a workspace's VERIFIED automations — the deploy step that ships only what /test proved green and hands the user their management handles
 argument-hint: "[workspace dir — defaults to scanning the cwd]"
 ---
 
-# /publish — register workspace artifacts into Toast
+# /publish — deploy a tested workspace (the DEPLOY step)
 
-Target workspace: **$ARGUMENTS** (when empty: scan the cwd, see step 1).
+Target workspace: **$ARGUMENTS** (empty → scan the cwd, see step 1).
 
-You are taking automations that already EXIST as workspace sources — authored
-by a previous `/create` run (possibly in standalone tier, possibly on another
-machine) or hand-edited by the user — and registering them into the running
-Toast backend, then proving them with real bakes. This is the bridge from
-"authored + statically verified" to "engine-VERIFIED". You do NOT redesign or
-re-author here; the workspace is the source of truth. Work in the user's
-language.
+You are the **deploy** step of build → test → deploy. By the time you run,
+`/test` has registered the artifacts into Toast and proved the root doughs
+bake green. Deploy ships only what was verified, finalizes the record, and
+hands the user the controls. You author nothing and design nothing.
 
-Tools: peel MCP (`mcp__plugin_dough-creator_peel__<tool>`), plus
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py` and
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/dough_publish.py`.
+**The gate:** `/publish` deploys ONLY artifacts whose `provenance.yaml` level
+is `verified`. An artifact that is merely `static` (authored + statically
+checked, never bake-proven) is NOT deployable — send the user to
+`/dough-creator:test` first. This is the test-gates-deploy discipline; do not
+bypass it by baking here yourself (that is `/test`'s job).
 
-## 0. Preflight — this command REQUIRES the backend
+Tools: `python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py`,
+`python ${CLAUDE_PLUGIN_ROOT}/scripts/dough_publish.py`, peel for read-backs.
+
+## 0. Preflight — backend REQUIRED
 
 Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/toast_env.py`. If `tier` is
-`standalone`, STOP: tell the user to start the Toast app and re-run — unlike
-`/create`, publishing has no offline mode (that is the point of this command).
+`standalone`, STOP: deployment targets a running Toast.
 
-Drift note: if the workspace's `provenance.yaml` carries `engine_core` stamps
-that differ from `${CLAUDE_PLUGIN_ROOT}/vendor/engine_core/VERSION.json`'s
-`mojo_rev`, mention it but do not block — the server re-validates everything
-at publish time, and the server is authoritative.
+## 1. Locate the workspace + read provenance
 
-## 1. Locate and inventory the workspace
+`$ARGUMENTS` → that dir; else scan the cwd for the workspace root. Read
+`provenance.yaml`. Partition the artifacts:
+- `verified` → deployable.
+- `static` or missing → NOT deployable; list them and tell the user to
+  `/dough-creator:test` first. If NOTHING is verified, stop after this report.
 
-- `$ARGUMENTS` given → that directory.
-- Otherwise scan the cwd for workspace roots: a dir containing
-  `provenance.yaml`, or matching the `./<slug>/{kits,doughs}/` shape. Multiple
-  candidates → ask the user which one.
+## 2. Confirm the deployment is live and complete
 
-Inventory: every kit dir under `<ws>/kits/`, every dough dir under
-`<ws>/doughs/` (dough.yaml + box.yaml), and the current `provenance.yaml`
-levels. Tell the user what you found before acting.
+`/test` already registered everything to bake it, so for a local Toast deploy
+this step is a confirmation, not a re-install:
+- `kit_lifecycle.py list` — every kit the verified doughs depend on is
+  registered with its tools. Missing one (e.g. the user ran `/test` in a
+  different profile/session) → `install <kit_dir>` and re-confirm.
+- For each verified dough, a read-back (`peel dough_spec` / `find_doughs`)
+  confirms it is live. Missing → `dough_publish.py publish <dough_dir>` (it is
+  already verified; this is just (re)registration, no design change).
 
-## 2. Kits first (doughs reference them)
+## 3. Report + hand over the controls
 
-For each kit: check `kit_lifecycle.py list` — already registered with tools →
-`reload <kit_id>` (picks up source edits); not registered → `install <kit_dir>`
-(the script verifies the kit actually bound; follow its hint on failure).
+Tell the user, in their terms:
+- which automations are now deployed and usable in their Toast app, what each
+  does, and what inputs each takes;
+- WHERE the editable source lives (`./<slug>/`) — edit there, then
+  `/create` (design change) or `/test` (re-verify) → `/publish` again;
+- the management handles: `dough_publish.py delete <dough_id>` to remove a
+  dough, `kit_lifecycle.py uninstall <kit_id>` to remove a created kit;
+- anything left undeployed (still `static`) and that `/test` finishes it.
 
-## 3. Publish doughs
+## Note — distribution beyond this machine
 
-`dough_publish.py publish <dough_dir>` for each (no `--draft`). Publish order:
-dependency-first when workspace doughs reference each other. A 422 carries the
-validator's issues:
-- mechanical fixes (a typo'd ref, a missing return key) → fix the workspace
-  source, republish, and say what you changed;
-- anything semantic (wiring, step changes) → show the issues and ask before
-  touching the design.
-
-## 4. Verification bakes — green or it isn't VERIFIED
-
-Identify the workspace's ROOT doughs (those no other workspace dough calls).
-For each root: `peel bake` with realistic inputs — defaults from `inputs:`
-when sensible, otherwise ask the user. A root bake exercises the whole tree
-(kits, sub-doughs, agent flours). On failure: `recall` the donut, read
-`error_code`, fix (workspace source + republish / kit reload), re-bake.
-
-Side-effect courtesy: if a root dough drives a browser or sends anything
-outward, tell the user before baking it.
-
-## 5. Upgrade provenance
-
-After a green root bake, update `<ws>/provenance.yaml` for every artifact the
-bake exercised (the root, its workspace sub-doughs, the kits' flours it
-called):
-
-```yaml
-artifacts:
-  user.my_automation:
-    validated: verified          # was: static
-    engine_core: <keep prior stamp if present>
-    verified_at: <iso8601>
-    donut: <root bake donut id>
-```
-
-Never downgrade an entry; artifacts that failed or weren't exercised keep
-their previous level.
-
-## 6. Report
-
-In the user's terms: what got registered (kits, automations), what is now
-engine-VERIFIED (with the bake as evidence), what remains unverified and why.
-Name the slugs and the removal handles (`dough_publish.py delete`,
-`kit_lifecycle.py uninstall`). Remind them the workspace stays the editable
-source — edit → `/publish` again.
+Today "deploy" means the automations are live in the user's OWN Toast. Sharing
+them with other users (a public catalog) is a future destination for this same
+command; when it lands, `/publish` gains a target and the verified-only gate
+above is exactly the quality bar a catalog needs.

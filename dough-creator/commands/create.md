@@ -1,92 +1,50 @@
 ---
-description: Build or modify a Toast automation from a natural-language request — composes existing doughs, authors agent flours, or creates a full kit when the capability doesn't exist yet
+description: Author a Toast automation from a natural-language request — composes existing doughs, authors agent flours, or creates a full kit. Authoring + static/unit checks only; run /test then /publish to verify and deploy.
 argument-hint: "<what the automation should do>"
 ---
 
-# /create — build or modify a Toast automation
+# /create — author a Toast automation (the BUILD step)
 
 The user wants: **$ARGUMENTS**
 
-You are the Toast creator. Toast (the desktop app) is the runtime — its dough
-engine validates, binds, and bakes everything you author. You are the builder
-that produces the artifacts. Work in the user's language.
+You are the Toast creator. This command is the **build** step of a
+build → test → deploy pipeline: you AUTHOR the artifacts and check them
+statically. Running them on the real engine (bake) is `/dough-creator:test`;
+deploying is `/dough-creator:publish`. `/create` itself needs NO backend and
+behaves identically whether Toast is running or not — it never bakes.
 
-peel MCP tools are available as `mcp__plugin_dough-creator_peel__<tool>`:
-`list_capabilities` · `find_doughs` · `dough_spec` · `validate_dough` ·
-`bake` · `recall` · `get_artifact`. Two API surfaces are not in peel:
-kit lifecycle calls (install / reload / uninstall) go through
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py`, and user-dough
-publishing (publish / pull / delete) goes through
-`python ${CLAUDE_PLUGIN_ROOT}/scripts/dough_publish.py`.
+Work in the user's language.
 
-**Discovery boundary:** capabilities are discovered through peel and the
-profile doughs tree ONLY. Never hunt for capabilities by searching the wider
-filesystem (home dir, Temp, repos) — anything not registered in the backend
-does not exist for you.
+peel MCP tools (`mcp__plugin_dough-creator_peel__<tool>`:
+`find_doughs` · `dough_spec` · `list_capabilities`) are used for DISCOVERY
+when the backend happens to be up; when it is down, discover from the
+workspace + floor capabilities (see step 2). Authoring never depends on them.
 
-**Workspace — cwd is the source of truth.** Every `/create` run works under
-`./<automation_slug>/` in the CURRENT directory — pick a short slug for the
-automation and author every artifact there:
+**Discovery boundary:** capabilities come from peel and the profile doughs
+tree ONLY. Never hunt the wider filesystem (home dir, Temp, repos) — anything
+not registered in the backend (or present in this workspace) does not exist
+for you.
+
+**Workspace — cwd is the source of truth.** Every run works under
+`./<automation_slug>/` in the CURRENT directory:
 
 ```
 ./<slug>/kits/<kit_id>/          kit source (kit.yaml, tools.py, connect.py, flours…)
 ./<slug>/doughs/<dough_slug>/    user dough source (dough.yaml + box.yaml)
 ```
 
-The user can see, version, and edit everything you create; Toast holds only
-the published runtime copies. NEVER write into Toast profile directories and
-never guess profile paths — kits enter Toast via `kit_lifecycle.py install
-<workspace kit path>`, user doughs via `dough_publish.py publish
-<workspace dough dir>`.
+The user can see, version, and edit everything here; Toast (after `/test` /
+`/publish`) holds the registered runtime copies. NEVER write into Toast
+profile directories and never guess profile paths.
 
-## 0. Preflight (always first)
+## 0. Preflight
 
-Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/toast_env.py`. Its `tier` field
-sets the run mode — state it to the user in one line and CONTINUE either way:
-
-- `connected` — the Toast backend is up; the full flow below applies as
-  written (publish IS validation, real bakes verify).
-- `standalone` — no backend. Do NOT stop. Run the same steps 1–7 with the
-  substitutions in **Standalone tier (no Toast)** below: offline validation
-  and direct unit runs replace publish/bake, which are deferred.
-
-The profile listing in its output is diagnostics for kit-install
-troubleshooting only — never a write target.
-
-## Standalone tier (no Toast)
-
-Same workspace, same authoring rules, same artifacts — only discovery and
-verification change. Everything authored standalone publishes unchanged the
-moment a backend is reachable.
-
-- **Discovery without peel.** peel (`find_doughs` / `dough_spec` /
-  `list_capabilities`) needs the backend. Compose against artifacts in THIS
-  workspace plus well-known floor capabilities (`basic.*`,
-  `webengine.browser.*`, `thinking.*`) only. Any step that assumes an
-  external capability you cannot inspect (a vendor flour's exact schema)
-  must be flagged as an explicit warning in the final report — never wire
-  against a remembered schema silently.
-- **Verification ladder** (replaces publish + test-bake; run top down,
-  every rung that applies):
-  1. `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <dough_dir>`
-     — parse + static rules + box checks on the vendored engine validator.
-     A dough that fails to parse is reported as parse ERRORS (never "0
-     issues"); refs to flours outside the workspace come back as WARNINGS,
-     not errors.
-  2. `python ${CLAUDE_PLUGIN_ROOT}/scripts/tool_runner.py` — unit-run every
-     authored kit tool directly with realistic inputs; check the return
-     dict against the flour's `to:` mapping and `outputs:` keys.
-  3. Agent-flour dry-run — execute the flour's prompt YOURSELF on sample
-     input and check the output shape against its `outputs:` schema.
-  4. `eval_js` dry-run — when Playwright browser tools are available, open
-     the target page and run the generated JS there.
-- **Publish/bake are DEFERRED, not skipped.** Tell the user plainly: the
-  artifacts are statically + unit verified but UNVERIFIED on a real engine;
-  that status (per artifact, with the vendored validator's version stamp)
-  is recorded in `./<slug>/provenance.yaml`; and they become publishable
-  the moment a Toast backend is reachable — run `/dough-creator:publish`
-  then: it registers the whole workspace, runs the verification bakes, and
-  upgrades provenance to VERIFIED in one pass.
+Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/toast_env.py` to learn whether peel
+discovery is available (`tier: connected`) or you author from workspace +
+floor capabilities only (`tier: standalone`). Either way `/create` continues
+and finishes — it does not stop on a missing backend. State the mode in one
+line. The profile listing is kit-install diagnostics only, never a write
+target.
 
 ## 1. Clarify
 
@@ -100,24 +58,22 @@ collection. If (b) is plausible, the design needs a data-driven store
 ## 2. Discover
 
 Map the request onto what already exists:
-- Vendor named → `find_doughs(namespace="postlab.<vendor>")` (dump the kit).
-- Capability described → `find_doughs(verb=[...])` across kits.
-- `dough_spec` every flour you intend to use — wire against real schemas only.
+- **Connected:** vendor named → `find_doughs(namespace="postlab.<vendor>")`;
+  capability described → `find_doughs(verb=[...])`; `dough_spec` every flour
+  you intend to use — wire against real schemas only.
+- **Standalone (peel down):** compose against artifacts in THIS workspace plus
+  floor capabilities only (`basic.*`, `webengine.browser.*`, `thinking.*`).
+  Any step assuming an external capability you cannot inspect must be flagged
+  as an explicit warning in the report — never wire against a remembered
+  schema silently.
 
 **If the request targets something that already exists** (the user names an
-automation you find in discovery, or asks to change/extend behavior): this is
-a MODIFY, not a create. Pull the source into the workspace and round-trip:
-- User dough → `dough_publish.py pull <dough_id> ./<slug>/doughs/<dough_slug>`
-  materializes its dough.yaml + box.yaml into the workspace; edit there, then
-  `dough_publish.py publish` it back. If the dough's original workspace source
-  already exists in this project, edit THAT instead — pull returns only what
-  the backend persisted (box labels beyond en name/about are dropped
-  server-side).
-- Kit → edit the kit's cwd source (the project folder it was installed from —
-  the kit's permanent home) and `kit_lifecycle.py reload <kit_id>`. If the
-  source isn't in this project, ask the user where it lives.
-
-Never author a parallel near-duplicate (`_v2`) when the user meant change.
+automation, or asks to change/extend behavior): this is a MODIFY. Edit the
+workspace source in place — the dough/kit's cwd folder is its permanent home.
+If the source isn't in this project, pull it first
+(`dough_publish.py pull <dough_id> ./<slug>/doughs/<dough_slug>`, connected
+only) or ask the user where it lives. Never author a parallel near-duplicate
+(`_v2`) when the user meant change.
 
 ## 3. Route the gaps
 
@@ -140,63 +96,47 @@ rule before writing any kit.yaml.
 Present the plan in plain language — what gets composed, what gets created,
 which external services it touches. Flag any choice you made between two
 reasonable designs. Wait for the user's go before authoring. While building,
-don't narrate internal ids, file names, or schema fields — but the final
-report MAY name the registered automation slug and how to remove it (that's
-the user's handle on what they now own).
+don't narrate internal ids, file names, or schema fields.
 
-## 5. Author
+## 5. Author (in the workspace)
 
 - Kit (if needed) first: author at `./<slug>/kits/<kit_id>/` per the
-  **kit-authoring** skill → `kit_lifecycle.py install ./<slug>/kits/<kit_id>`
-  (the backend copies the source into its active profile and binds it; the
-  script verifies the kit actually bound — follow its hint if not). The edit
-  loop afterwards is: edit the workspace source →
-  `kit_lifecycle.py reload <kit_id>`.
-- Then the dough/agent flours per the **dough-authoring** skill, authored at
-  `./<slug>/doughs/<dough_slug>/` (dough.yaml + box.yaml) — they may
-  reference the freshly installed kit's flours. Register each one with
-  `dough_publish.py publish ./<slug>/doughs/<dough_slug>`. Publishing IS
-  validation: a 422 response carries `validation_errors` — fix the workspace
-  source and republish. Use `--draft` for intermediate saves of a dough you
-  are still iterating on.
+  **kit-authoring** skill.
+- Then the dough/agent flours per the **dough-authoring** skill, at
+  `./<slug>/doughs/<dough_slug>/` (dough.yaml + box.yaml) — they may reference
+  the kit's flours by id.
 
-## 6. Verify — green or it doesn't ship
+Author against the rules; do not register or bake here — that is `/test`.
 
-**Standalone tier:** the verification ladder above replaces this section —
-run it to the bottom, then record each artifact's reached level (and the
-vendored validator's stamp) in `./<slug>/provenance.yaml` as
-engine-UNVERIFIED. The rest of this section is the connected-tier bar.
+## 6. Static + unit checks (the BUILD bar)
 
-For every authored unit:
-1. A clean `publish` already validated it; run peel `validate_dough` for
-   re-checks until clean (each error's `hint` is a directive).
-2. Test-`bake` with realistic inputs. One end-to-end bake that exercises
-   every authored unit with realistic inputs satisfies this; prefer an
-   isolated flour bake first when a unit is risky (network, browser).
-3. On failure: `recall` the donut, read `error_code`, fix the workspace
-   source, then republish (`dough_publish.py publish`) for YAML fixes or
-   `kit_lifecycle.py reload <kit_id>` for kit Python fixes.
-4. Repeat until the end-to-end bake succeeds.
+This is what `/create` guarantees. Run every rung that applies:
 
-Do not report success on validation alone — a real bake must have run green.
-(A connected-tier green bake also upgrades the artifact's `provenance.yaml`
-record to engine-VERIFIED, if a provenance file exists from an earlier
-standalone run.)
+1. **Static validate** —
+   `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <slug_dir>`:
+   parse + composition rules + box checks on the vendored engine validator.
+   A dough that fails to parse is reported as ERRORS (never "0 issues"); refs
+   to flours outside the workspace come back as WARNINGS, not errors. Fix
+   every error in the workspace source; carry every warning into the report.
+2. **Unit-run tools** —
+   `python ${CLAUDE_PLUGIN_ROOT}/scripts/tool_runner.py <kit_dir> <symbol> --inputs <json>`
+   for each authored kit tool with realistic inputs; check the return dict
+   against the flour's `to:` mapping and `outputs:` keys.
+3. **Agent-flour dry-run** — execute the flour's prompt YOURSELF on sample
+   input; check the output shape against its `outputs:` schema.
+4. **eval_js dry-run** — when Playwright browser tools are available, open the
+   target page and run the generated JS there.
 
-## 7. Report
+`offline_validate.py` records each passing artifact in
+`./<slug>/provenance.yaml` as `validated: static` with the validator's version
+stamp. This is the build-step level — NOT engine-verified yet.
 
-Tell the user what was built, in their language and their terms: what the
-automation does, what inputs it takes, and — **connected tier** — that it is
-now visible in their Toast app. Tell them WHERE the sources live —
-`./<slug>/` in this project is their owned copy: visible, versionable, and
-the place to edit (edits flow back via publish/reload). Name the
-automation's slug; note it can be removed cleanly if they change their mind
-(`dough_publish.py delete <dough_id>` for doughs, `kit_lifecycle.py
-uninstall <kit_id>` for a created kit).
+## 7. Report + hand off to /test
 
-**Standalone tier instead:** report that the artifacts are statically + unit
-verified but UNVERIFIED on a real engine (as recorded in
-`./<slug>/provenance.yaml`), list any external-capability warnings from
-discovery, and say exactly how to finish: start Toast, then re-run `/create`
-(or `dough_publish.py publish` / `kit_lifecycle.py install` directly) to
-publish and bake-verify.
+Tell the user, in their terms: what the automation does, what inputs it takes,
+and WHERE the sources live (`./<slug>/` — their owned, editable copy). List
+any external-capability warnings from discovery. Then state the next step
+plainly: the artifacts are authored and statically/unit-checked but have not
+run on the real engine yet — run **`/dough-creator:test`** (Toast must be
+running) to register them and bake-verify, then **`/dough-creator:publish`**
+to deploy. Name the automation's slug.
