@@ -6,11 +6,16 @@ description: How to author Toast doughs (compositions) and user agent flours. Us
 # Authoring doughs and agent flours
 
 **The grammar lives in Toast, not here.** Before writing any YAML, fetch the
-live build guide and apply it as your own reasoning:
+live build guide and apply it as your own reasoning — **when the backend is
+up**:
 
 ```
 peel dough_spec(ids=["thinking.guide_build"])
 ```
+
+**Offline (standalone tier — backend down):** peel and the live guide are
+unreachable; SKIP the fetch and author from this skill's rules + the engine
+ground truths below (the offline loop is spelled out in "The loop", step 1).
 
 Its `action.agent` text is the full authoring contract — composition rules
 (R1–R15), ref resolution, box.yaml requirements, the basic.* control-flow

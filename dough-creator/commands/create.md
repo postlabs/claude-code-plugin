@@ -15,10 +15,10 @@ behaves identically whether Toast is running or not — it never bakes.
 
 Work in the user's language.
 
-peel MCP tools (`mcp__plugin_dough-creator_peel__<tool>`:
-`find_doughs` · `dough_spec` · `list_capabilities`) are used for DISCOVERY
-when the backend happens to be up; when it is down, discover from the
-workspace + floor capabilities (see step 2). Authoring never depends on them.
+peel MCP tools (`mcp__plugin_dough-creator_peel__<tool>` — `find_doughs`,
+`dough_spec`, `list_capabilities`) are used for DISCOVERY when the backend
+happens to be up; when it is down, discover from the workspace + floor
+capabilities (see step 2). Authoring never depends on them.
 
 **Discovery boundary:** capabilities come from peel and the profile doughs
 tree ONLY. Never hunt the wider filesystem (home dir, Temp, repos) — anything
@@ -48,16 +48,27 @@ target.
 
 ## 1. Clarify
 
-If the request is vague or has a real fork (scope, output shape, trigger),
-ask ONE clarifying question before any discovery. A recurring fork worth
-catching: possessive collections — "보유한/내/저장된 X들", "my saved X" —
-fork between (a) built-in defaults and (b) a user-owned, extensible
-collection. If (b) is plausible, the design needs a data-driven store
-(save_X / list_X / run_X primitives), not a hardcoded enum; ask.
+Ask ONE clarifying question ONLY when the request is vague or has a real fork
+(scope, output shape, trigger); otherwise proceed straight to discovery.
+
+One fork worth catching by name — possessive collections ("보유한/내/저장된
+X들", "my saved X"): these fork between (a) built-in defaults and (b) a
+user-owned, extensible collection. If (b) is plausible, the design needs a
+data-driven store (save_X / list_X / run_X primitives), not a hardcoded enum;
+ask which.
 
 ## 2. Discover
 
-Map the request onto what already exists:
+**First, is this a MODIFY?** If the request targets something that already
+exists (the user names an automation, or asks to change/extend behavior),
+route it as a MODIFY before anything else: edit the workspace source in place
+— the dough/kit's cwd folder is its permanent home. If the source isn't in
+this project, pull it first (`dough_publish.py pull <dough_id>
+./<slug>/doughs/<dough_slug>`, connected only) or ask the user where it lives.
+**Never author a parallel near-duplicate (`_v2`) when the user meant change** —
+that is the failure this check exists to prevent.
+
+Otherwise it's a new build. Map the request onto what already exists:
 - **Connected:** vendor named → `find_doughs(namespace="postlab.<vendor>")`;
   capability described → `find_doughs(verb=[...])`; `dough_spec` every flour
   you intend to use — wire against real schemas only.
@@ -67,14 +78,6 @@ Map the request onto what already exists:
   as an explicit warning in the report — never wire against a remembered
   schema silently.
 
-**If the request targets something that already exists** (the user names an
-automation, or asks to change/extend behavior): this is a MODIFY. Edit the
-workspace source in place — the dough/kit's cwd folder is its permanent home.
-If the source isn't in this project, pull it first
-(`dough_publish.py pull <dough_id> ./<slug>/doughs/<dough_slug>`, connected
-only) or ask the user where it lives. Never author a parallel near-duplicate
-(`_v2`) when the user meant change.
-
 ## 3. Route the gaps
 
 For each part of the request not covered by an existing flour:
@@ -82,10 +85,13 @@ For each part of the request not covered by an existing flour:
 | Gap | Meaning | Route |
 |-----|---------|-------|
 | none | existing flours cover it | **composition** → dough-authoring skill |
-| reasoning | judge/classify/summarize data the dough already holds | **user agent flour** → dough-authoring skill |
-| reach | call an API, compute, parse, read/write files | **new kit** → kit-authoring skill |
+| reasoning | judge/classify/summarize data the dough already holds (e.g. pick the best of 3 results the dough already fetched) | **user agent flour** → dough-authoring skill |
+| reach | call an API, compute, parse, read/write files (e.g. fetch the 3 results in the first place) | **new kit** → kit-authoring skill |
 | page scripting | inject JS into a page / read a page once (chart drawing, scraping a known surface) | **in scope** — a codegen kit tool + `webengine.browser.open_tab` → `webengine.browser.act(kind=eval_js)` composition |
 | browser UI driving | multi-step clicking/typing through a site's UI | out of scope — point the user at the action-creator plugin (web doughs) |
+
+The reasoning/reach boundary is the most consequential call: reasoning works
+OVER data the dough already holds; reach goes OUT to get it or compute it.
 
 When one request decomposes into reach + compute + rendering, that is SEVERAL
 kits, not one — see the kit-authoring skill's "Cut kits by capability axis"
@@ -123,7 +129,10 @@ This is what `/create` guarantees. Run every rung that applies:
    for each authored kit tool with realistic inputs; check the return dict
    against the flour's `to:` mapping and `outputs:` keys.
 3. **Agent-flour dry-run** — execute the flour's prompt YOURSELF on sample
-   input; check the output shape against its `outputs:` schema.
+   input; check the output shape against its `outputs:` schema. Skip this and
+   the flour ships a prompt whose output shape was never checked against its
+   `outputs:` schema — it surfaces only as a bake-time shape mismatch in
+   `/test`. This self-run rung is the easiest to skip; don't.
 4. **eval_js dry-run** — when Playwright browser tools are available, open the
    target page and run the generated JS there.
 

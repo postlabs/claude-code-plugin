@@ -83,7 +83,7 @@
       "name": "dough-creator",
       "source": "./dough-creator",
       "description": "Build Toast automations from natural language — composes doughs, authors agent flours, creates full kits with Python tools; works standalone without a Toast backend",
-      "version": "0.5.2",
+      "version": "0.6.0",
       "category": "development",
       "author": {
         "name": "Postlabs"

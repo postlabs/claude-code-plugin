@@ -5,6 +5,21 @@ description: How to author a Toast kit — Python tools + tool flours — and bi
 
 # Authoring a Toast kit
 
+## Two load-time killers — read these FIRST
+
+Two mistakes pass every static/offline check, then take the WHOLE kit down at
+KIT LOAD — every flour in the kit goes invalid, and the kit's doughs become
+unbakeable. Nothing else in this skill is this catastrophic; get these right
+before anything else.
+
+1. **An invented `verb:`.** `verb:` is a CLOSED vocabulary. `read`, `analyze`,
+   and the like are NOT verbs — they pass offline validation and fail at LOAD.
+   Only ever use a verb that `peel list_capabilities()` lists. (Full list +
+   detail under "Tool flour — dough.yaml shape".)
+2. **A third-party no-auth kit missing `auth.category: local` + `connect.py`
+   (manifest rule 3.4).** Without it the kit is rejected at load and every bake
+   fails preflight with `provider_not_connected`. (Detail under "kit.yaml".)
+
 ## Cut kits by capability axis, not by request
 
 A kit is a LIBRARY (think Python package), and one request usually decomposes
@@ -59,7 +74,7 @@ connect: my_kit.connect   # REQUIRED with category: local
 **Never write `provides:` in kit.yaml** — the loader derives the tool list by
 walking the flour directories. A `provides:` block is rejected.
 
-**Manifest rule 3.4 (will reject your kit at load if violated):** any kit whose
+**Manifest rule 3.4 (load-time killer — see top of skill):** any kit whose
 top-level id segment is not a reserved bundled vendor (`postlab`, `basic`,
 `advanced`, `thinking`, `webengine`) loads as third-party. A third-party kit
 with `auth.type: none` MUST declare `auth.category: local` AND ship a
@@ -103,33 +118,35 @@ the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare),
    dict. No decorators, no registration call, no ctx/self parameter — the
    loader binds the symbol named in `action.tool:` and calls it with decoded
    kwargs only.
-5. **One tool = one primitive.** An HTTP call, a disk op, a parse, a pure
-   computation over its inputs. **Never orchestrate inside a tool**, and
-   "orchestration" includes pure compute:
-   - A function that fetches AND computes AND writes is a pipeline hiding
-     from the engine — ship the primitives, wire them in a composition.
-   - A tool that ITERATES over a caller-visible list of work items
-     (strategies, files, symbols) hides an `each:` from the engine — ship
-     the per-item primitive (`run_strategy(candles, strategy)`) and let the
-     composition fan out.
-   - A tool that returns several independently-useful results (levels AND
-     per-strategy stats AND a best-pick AND an assembled report) is several
-     tools — one primitive per result, plus at most a thin `assemble_*`
-     reshaper at the end.
-   - Judgment calls (which result is "best", what to display) belong in a
-     composition step — an agent flour or a user-visible input — not buried
-     in tool Python.
-   A tool may still call sibling pure HELPER functions (a backtest calling
-   its simulator is one primitive); the test is whether the engine — and the
-   user reading the steps — can see the workflow's moving parts.
+5. **One tool = one primitive.** The test: can the engine — and the user
+   reading the steps — SEE each moving part of the workflow? If not, split. An
+   HTTP call, a disk op, a parse, or a pure computation over its inputs is one
+   primitive. **Never orchestrate inside a tool**, and "orchestration" includes
+   pure compute. The four ways a tool hides work from the engine:
+   - *Pipeline* — a function that fetches AND computes AND writes. Ship the
+     primitives, wire them in a composition.
+   - *Hidden `each:`* — a tool that ITERATES over a caller-visible list of work
+     items (strategies, files, symbols). Ship the per-item primitive
+     (`run_strategy(candles, strategy)`) and let the composition fan out.
+   - *Multiple results* — a tool that returns several independently-useful
+     results (levels AND per-strategy stats AND a best-pick AND an assembled
+     report) is several tools: one primitive per result, plus at most a thin
+     `assemble_*` reshaper at the end.
+   - *Buried judgment* — judgment calls (which result is "best", what to
+     display) belong in a composition step (an agent flour or a user-visible
+     input), not in tool Python.
+
+   Counter-exception: a tool may still call sibling pure HELPER functions (a
+   backtest calling its simulator is one primitive).
 6. **Per-profile storage:** `from _core.profile import profile_dir` and use a
    kit-private subdir — `profile_dir() / "my_kit_store"`. There is NO injected
    `ctx` object (older docs mentioning `ctx.workspace_dir` are phantom).
    Tokens: `from _core.tokens import read_tokens, write_tokens` (auth kits).
-7. **Auth failures raise built-in `PermissionError`** — the host translates it.
-8. **Logging:** stdlib `logging.getLogger(__name__)`. No structlog, no prints.
-9. **Fan-out consumers take envelope lists.** A tool whose input is the
-   collected list of an `each:`/`all:` fan-out receives one
+7. Auth failures raise built-in `PermissionError` — the host translates it.
+8. Logging: use stdlib `logging.getLogger(__name__)` (no structlog, no prints).
+9. **Fan-out consumers take envelope lists** (this is the PRODUCER side of
+   dough-authoring ground-truth 4 — the two halves are one contract). A tool
+   whose input is the collected list of an `each:`/`all:` fan-out receives one
    `{"<output_key>": value}` dict PER ITEM (the engine collects each item's
    full step output). Unwrap explicitly (`[e["row"] for e in rows]`) and
    document the envelope in the docstring.
@@ -163,9 +180,10 @@ return:
   rates: ${rates}
 ```
 
-- **`verb:` is a closed vocabulary** (`peel list_capabilities()` shows it —
+- **`verb:` is a closed vocabulary** (load-time killer — see top of skill).
+  `peel list_capabilities()` shows it —
   fetch/get/list/create/update/delete/send/convert/classify/search/review/
-  filter/summarize/...). An invented verb (`read`, `analyze`...) does NOT fail
+  filter/summarize/... . An invented verb (`read`, `analyze`...) does NOT fail
   static validation — it fails at KIT LOAD and takes the *whole kit* down
   (every flour invalid). Never invent a verb.
 - **`to:` drills, it does not unwrap.** `to: rates` (bare string) binds the
@@ -221,38 +239,14 @@ is "edit cwd → `reload`", and a failed bake is repaired in the cwd source and
 re-baked until green. Author here so that WILL succeed; don't install or bake
 in the build step.
 
-## Debugging a failed bake
+Bake debugging (reading `error_code` from `recall`), the canonical `error_code`
+reference, and install/bind failure troubleshooting all live in
+`/dough-creator:test` — that is where bind/reload/bake run.
 
-`peel recall(dough_id=...)` returns the donut. Read `error_code` first:
-`tool_failed` (your Python raised — fix, reload), `output_shape_mismatch`
-(the `to:` mapping or return shape is wrong), `each_not_list`/`all_not_list`
-(a ref didn't resolve to a list), `provider_not_connected` (missing
-connect.py — see rule 3.4). Never guess from the prose message alone.
-For a LARGE donut, don't pull the whole thing through recall — read the
-persisted donut JSON from the profile and extract the keys you need.
+## Promotion (out of scope here)
 
-## Troubleshooting: install/bind failures (one root cause, many faces)
-
-| Symptom | Meaning |
-|---|---|
-| install → 400 "Failed to load kit — check kit.yaml" | usually NOT the yaml |
-| bake → "Tool not found: '<kit>.<tool>' — no kit registered" | same cause |
-| reload → "Kit not found" | same cause |
-
-Root cause (verified): the backend's ACTIVE profile (JWT-derived when logged
-in) differs from the profile whose doughs dir is on sys.path — the install
-copies your kit where Python can't import it. `kit_lifecycle.py install`
-auto-verifies binding and prints this hint; the workaround is copying the kit
-source under EVERY `{profiles}/<key>/doughs/<kit_id>/` and installing again
-(`toast_env.py` profile enumeration exists ONLY for this diagnostic path —
-never to choose authoring locations). User doughs are unaffected: they go
-through the publish API (`dough_publish.py`), which always targets the
-backend's active profile.
-
-## Promotion (separate, later step — not part of /create)
-
-A kit born here lives in the user's project and loads as a third-party kit.
-Promoting it to an official bundled kit means moving the source into the Toast repo's
-`src/backend/kits/`, running `scripts/repair_flour_entries.py --check` and
-`scripts/generate_kit_hashes.py`, and going through review. Do not do this
-inside a /create run.
+Promoting a kit born here into an official bundled kit — moving the source into
+the Toast repo's `src/backend/kits/`, running
+`scripts/repair_flour_entries.py --check` and `scripts/generate_kit_hashes.py`,
+and going through review — is a separate later step, NOT part of `/create`.
+Do not do it inside a `/create` run.
