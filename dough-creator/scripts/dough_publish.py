@@ -27,19 +27,17 @@ Requires ruamel.yaml — run with the embedded Toast Python (the interpreter
 peel uses), e.g. <mojo repo>/src/extraResources/python/win32-x64/python/python.exe,
 or any Python with `pip install ruamel.yaml`.
 
-Prints the JSON response body. Exit 0 on success, 1 otherwise.
+Prints newline-delimited JSON (one object per line). Exit 0 on success, 1 otherwise.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 
-# Never die on console codepage (cp949) — error bodies may carry UTF-8.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from _common import call, report, utf8_io
+
+utf8_io()
 
 try:
     from ruamel.yaml import YAML
@@ -51,8 +49,6 @@ except ImportError:
         "or `pip install ruamel.yaml`.")}}, ensure_ascii=False))
     sys.exit(1)
 
-BASE_URL = os.environ.get("PEEL_BASE_URL", "http://127.0.0.1:18587/api/v1")
-
 # Server-managed keys — never round-tripped from/to the payload.
 SERVER_KEYS = ("version", "created_at", "updated_at")
 
@@ -60,35 +56,6 @@ _yaml = YAML()
 _yaml.default_flow_style = False
 _yaml.allow_unicode = True
 _yaml.width = 4096
-
-
-def call(method: str, path: str, body: dict | None = None) -> tuple[int, dict | str]:
-    req = urllib.request.Request(
-        BASE_URL + path,
-        method=method,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        text = e.read().decode("utf-8", errors="replace")
-        try:
-            return e.code, json.loads(text)
-        except ValueError:
-            return e.code, text
-    except (urllib.error.URLError, OSError) as e:
-        return 0, {"error": f"backend unreachable: {e}"}
-    try:
-        return 200, json.loads(text)
-    except ValueError:
-        return 200, text
-
-
-def report(status: int, data) -> int:
-    print(json.dumps({"status": status, "body": data}, ensure_ascii=False))
-    return 0 if 200 <= status < 300 else 1
 
 
 def load_yaml(path: str):
@@ -133,14 +100,22 @@ def publish(dough_dir: str, draft: bool) -> int:
     if box:
         payload["box"] = box  # ignored by the backend today; kept for a future write path
 
-    exists, _ = call("GET", f"/doughs/{dough_id}")
+    exists, exists_body = call("GET", f"/doughs/{dough_id}")
     if exists == 200:
         query = "?draft=true" if draft else ""
         status, data = call("PUT", f"/doughs/{dough_id}{query}", payload)
         verb = "updated"
-    else:
+    elif exists == 404:
         status, data = call("POST", "/doughs", payload)
         verb = "created"
+    else:
+        # 5xx / 403 / unreachable: existence is unknown — don't fire a doomed
+        # POST that would 409 or mask the real error. Report the probe failure.
+        return report(exists, {
+            "error": "could not determine whether the dough already exists "
+                     f"(GET /doughs/{dough_id} returned {exists})",
+            "probe_body": exists_body,
+        })
     rc = report(status, data)
     print_validation_errors(status, data)
     if rc == 0:
@@ -161,13 +136,12 @@ def pull(dough_id: str, dest_dir: str) -> int:
     os.makedirs(dest_dir, exist_ok=True)
     dump_yaml(os.path.join(dest_dir, "dough.yaml"), spec)
     dump_yaml(os.path.join(dest_dir, "box.yaml"), box)
-    print(json.dumps({"status": status, "body": {
+    return report(status, {
         "pulled": dough_id,
         "dir": dest_dir,
         "files": ["dough.yaml", "box.yaml"],
         "locales": sorted(box.keys()) if isinstance(box, dict) else [],
-    }}, ensure_ascii=False))
-    return 0
+    })
 
 
 def main() -> int:

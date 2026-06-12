@@ -1,4 +1,4 @@
-"""Tier-1 unit-verification harness — run ONE kit tool directly, no Toast backend.
+"""Unit-check harness — run ONE kit tool directly, no Toast backend.
 
     python tool_runner.py <kit_dir> <symbol_or_entry> [--inputs <json or @file.json>]
 
@@ -9,10 +9,10 @@ Examples:
 
 What this proves / does NOT prove:
   PROVES   the tool's Python logic runs and returns a sane value with the
-           given inputs (Tier-1 "unit-verified" provenance).
+           given inputs (a standalone unit check — writes no provenance).
   DOES NOT prove engine binding — flour entry: wiring, input/output schema
-           conformance, box.yaml, or that the kit loads in Toast. Those are
-           Tier-2 (kit_lifecycle.py install + real bake).
+           conformance, box.yaml, or that the kit loads in Toast. That is
+           engine-verified (kit_lifecycle.py install + real bake).
 
 Mechanics:
   1. sys.path gets vendor/core_stub prepended, so `from _core.profile import
@@ -48,14 +48,13 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-# Never die on console codepage (cp949) — results may carry UTF-8.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from _common import PLUGIN_ROOT, utf8_io
+
+utf8_io()
 
 # Keep vendor/core_stub (and the user's kit source) free of __pycache__.
 sys.dont_write_bytecode = True
 
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 CORE_STUB_DIR = PLUGIN_ROOT / "vendor" / "core_stub"
 
 # `entry: <file>.py:<symbol>` line in a flour dough.yaml (no yaml dep needed).
@@ -108,10 +107,7 @@ def _resolve(kit_dir: Path, spec: str) -> tuple[Any, str]:
             file_part = scanned
 
     module_name = f"{kit_dir.name}.{file_part[:-3]}"
-    try:
-        mod = importlib.import_module(module_name)
-    except ImportError:
-        raise
+    mod = importlib.import_module(module_name)
     try:
         fn = getattr(mod, symbol)
     except AttributeError:
@@ -138,7 +134,7 @@ def _jsonable(obj: Any) -> Any:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="tool_runner.py",
-        description="Run one kit tool directly (Tier-1, no Toast backend).",
+        description="Run one kit tool directly (standalone unit check, no Toast backend).",
     )
     parser.add_argument("kit_dir", help="kit source dir (folder name = kit id)")
     parser.add_argument("symbol", help="<symbol> (default tools.py) or <file>.py:<symbol>")
@@ -147,12 +143,14 @@ def main() -> int:
 
     kit_dir = Path(args.kit_dir).resolve()
     if not kit_dir.is_dir():
-        print(json.dumps({"ok": False, "error": f"kit_dir not found: {kit_dir}"}))
+        print(json.dumps({"ok": False, "error": f"kit_dir not found: {kit_dir}"},
+                         ensure_ascii=False))
         return 2
     try:
         inputs = _parse_inputs(args.inputs)
     except (ValueError, OSError) as exc:
-        print(json.dumps({"ok": False, "error": f"bad --inputs: {exc}"}))
+        print(json.dumps({"ok": False, "error": f"bad --inputs: {exc}"},
+                         ensure_ascii=False))
         return 2
 
     # Stub _core first, then the kit's parent so `import <kit>.<module>` works.

@@ -20,45 +20,17 @@ Workaround when it happens: copy the kit source under EVERY
 {profiles}/<key>/doughs/<kit_id>/ (toast_env.py lists the profiles), then
 install again.
 
-Prints the JSON response body. Exit 0 on success, 1 otherwise.
+Prints newline-delimited JSON (one object per line). Exit 0 on success, 1 otherwise.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 
-# Never die on console codepage (cp949) — error bodies may carry UTF-8.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from _common import call, report, utf8_io
 
-BASE_URL = os.environ.get("PEEL_BASE_URL", "http://127.0.0.1:18587/api/v1")
-
-
-def call(method: str, path: str, body: dict | None = None) -> tuple[int, dict | str]:
-    req = urllib.request.Request(
-        BASE_URL + path,
-        method=method,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        text = e.read().decode("utf-8", errors="replace")
-        try:
-            return e.code, json.loads(text)
-        except ValueError:
-            return e.code, text
-    except (urllib.error.URLError, OSError) as e:
-        return 0, {"error": f"backend unreachable: {e}"}
-    try:
-        return 200, json.loads(text)
-    except ValueError:
-        return 200, text
+utf8_io()
 
 
 def kit_bound(kit_id: str) -> bool:
@@ -73,11 +45,6 @@ def kit_bound(kit_id: str) -> bool:
     return False
 
 
-def report(status: int, data) -> int:
-    print(json.dumps({"status": status, "body": data}, ensure_ascii=False))
-    return 0 if 200 <= status < 300 else 1
-
-
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -85,6 +52,9 @@ def main() -> int:
     cmd = sys.argv[1]
 
     if cmd == "install":
+        if len(sys.argv) < 3:
+            print(__doc__)
+            return 2
         kit_dir = os.path.abspath(sys.argv[2])
         status, data = call("POST", "/kits/install", {"path": kit_dir})
         rc = report(status, data)
@@ -103,9 +73,15 @@ def main() -> int:
         return rc
 
     if cmd == "reload":
+        if len(sys.argv) < 3:
+            print(__doc__)
+            return 2
         status, data = call("POST", f"/kits/{sys.argv[2]}/reload")
         return report(status, data)
     if cmd == "uninstall":
+        if len(sys.argv) < 3:
+            print(__doc__)
+            return 2
         status, data = call("DELETE", f"/kits/{sys.argv[2]}")
         return report(status, data)
     if cmd == "list":

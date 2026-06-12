@@ -17,7 +17,7 @@ backend_up + tier + base_url are the contract. "tier" is "connected" when
 the Toast backend answers /health, "standalone" when it does not.
 Standalone is a SUPPORTED tier, not a failure: the creator continues with
 offline validation + direct tool unit runs and DEFERS publish/bake (see
-commands/create.md, "Standalone tier"). The plugin NEVER writes into
+commands/create.md, step 0 Preflight). The plugin NEVER writes into
 profile directories by path — cwd is the source of truth: user doughs go
 through dough_publish.py (API), kits through kit_lifecycle.py install (API).
 
@@ -47,7 +47,10 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE_URL = os.environ.get("PEEL_BASE_URL", "http://127.0.0.1:18587/api/v1")
+from _common import BASE_URL, utf8_io
+
+utf8_io()
+
 HEALTH_URL = BASE_URL.rsplit("/api/", 1)[0] + "/health"
 
 
@@ -90,7 +93,7 @@ def main() -> int:
             "active_profile_ambiguous": len(profiles) > 1,
             "doughs_dirs": doughs,
         },
-    }))
+    }, ensure_ascii=False))
     return 0
 
 

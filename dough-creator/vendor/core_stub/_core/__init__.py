@@ -1,6 +1,6 @@
 """Standalone stand-in for the kit-side ``_core`` helper library.
 
-Tier-1 (no Toast backend) shim: lets kit Python written against the real
+Standalone (no Toast backend) shim: lets kit Python written against the real
 ``_core`` import and run unmodified under ``scripts/tool_runner.py``.
 Mirrors the REAL module surface (signatures and behavior) for the subset
 kits actually touch at tool-run time::
@@ -10,7 +10,7 @@ kits actually touch at tool-run time::
     from _core.auth_events import AuthEvent, AuthStatus
 
 NOT included (runtime/connect-flow machinery, skipped for unit runs):
-oauth_base, mcp_base, token_store, credentials, dates, manifest_lite,
+oauth_base, mcp_base, token_store, credentials, manifest_lite,
 brand. ``connect.py`` is the only kit module that needs those — tool
 unit runs never import it.
 

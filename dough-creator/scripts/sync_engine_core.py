@@ -1,6 +1,6 @@
 """Regenerate vendor/engine_core/ — the offline-validation slice of the Toast dough engine.
 
-Dev-side script (Tier-1 "standalone" support, v0.4). Copies the minimal import
+Dev-side script (standalone-validation support, 0.5.0). Copies the minimal import
 closure of `app.doughs.validation.engine.validate_yaml` out of a mojo checkout
 into <plugin>/vendor/engine_core/, preserving the app/ package structure:
 
@@ -50,11 +50,10 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Never die on console codepage (cp949) — paths/messages may carry UTF-8.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from _common import PLUGIN_ROOT, utf8_io
 
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+utf8_io()
+
 VENDOR_DIR = PLUGIN_ROOT / "vendor" / "engine_core"
 DEFAULT_REPO = "C:/Code/mojo/.worktrees/automation-view"
 
@@ -195,8 +194,6 @@ def main() -> int:
 
     files: list[str] = []
     for rel in VERBATIM:
-        if rel in STUBS:  # belt-and-braces: stubs always win over copies
-            continue
         dest = VENDOR_DIR / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(backend / rel, dest)
@@ -208,16 +205,21 @@ def main() -> int:
         dest.write_text(body, encoding="utf-8", newline="\n")
 
     rev = git_rev(repo)
-    version = {
-        "mojo_rev": rev,
-        "synced_at": datetime.now(timezone.utc).isoformat(),
-        "files": files,
-        "stubs": sorted(STUBS),
-    }
-    (VENDOR_DIR / "VERSION.json").write_text(
-        json.dumps(version, indent=2) + "\n", encoding="utf-8", newline="\n")
 
+    # Smoke the freshly-rebuilt tree BEFORE stamping it — a smoke-failed sync
+    # must NOT leave a stamped VERSION.json that offline_validate would trust.
     ok, smoke_out = smoke(VENDOR_DIR)
+    if ok:
+        version = {
+            "mojo_rev": rev,
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "files": files,
+            "stubs": sorted(STUBS),
+            "smoke": smoke_out,
+        }
+        (VENDOR_DIR / "VERSION.json").write_text(
+            json.dumps(version, indent=2) + "\n", encoding="utf-8", newline="\n")
+
     print(json.dumps({
         "synced": ok,
         "vendor_dir": str(VENDOR_DIR),

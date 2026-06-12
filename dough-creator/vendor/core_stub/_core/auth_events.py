@@ -2,7 +2,7 @@
 
 Verbatim copy of the real module's dataclasses + factories (stdlib
 ``dataclasses`` only, no pydantic): kit ``connect.py`` modules import
-these at module top, so even though Tier-1 unit runs never *call* the
+these at module top, so even though standalone unit runs never *call* the
 connect flow, the symbols must exist for any kit module that happens to
 import them transitively. Events are plain dataclasses with
 ``to_dict()`` — dict-like enough for offline inspection; there is no
