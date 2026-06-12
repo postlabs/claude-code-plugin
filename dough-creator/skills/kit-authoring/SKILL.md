@@ -5,20 +5,34 @@ description: How to author a Toast kit — Python tools + tool flours — and bi
 
 # Authoring a Toast kit
 
-## Two load-time killers — read these FIRST
+## Three load-time killers — read these FIRST
 
-Two mistakes pass every static/offline check, then take the WHOLE kit down at
-KIT LOAD — every flour in the kit goes invalid, and the kit's doughs become
-unbakeable. Nothing else in this skill is this catastrophic; get these right
-before anything else.
+Three mistakes pass every static/offline check, then bite at KIT LOAD or
+silently build the WRONG structure. Nothing else in this skill is this
+consequential; get these right before anything else.
 
 1. **An invented `verb:`.** `verb:` is a CLOSED vocabulary. `read`, `analyze`,
-   and the like are NOT verbs — they pass offline validation and fail at LOAD.
-   Only ever use a verb that `peel list_capabilities()` lists. (Full list +
-   detail under "Tool flour — dough.yaml shape".)
+   and the like are NOT verbs — they pass offline validation and fail at LOAD
+   (the whole kit goes invalid). Only ever use a verb that
+   `peel list_capabilities()` lists. (Full list + detail under "Tool flour —
+   dough.yaml shape".)
 2. **A third-party no-auth kit missing `auth.category: local` + `connect.py`
    (manifest rule 3.4).** Without it the kit is rejected at load and every bake
    fails preflight with `provider_not_connected`. (Detail under "kit.yaml".)
+3. **A RESERVED vendor in the kit id.** The id's first segment must NOT be a
+   reserved bundled vendor: `postlab`, `basic`, `advanced`, `thinking`,
+   `webengine`. Those namespaces belong to first-party kits shipped inside
+   Toast. A kit you author here is THIRD-PARTY — give it a single-segment id
+   (`law_kr`, `weather`, `my_kit`), NEVER `postlab.law.korea`. **Why this is a
+   silent trap:** a dotted id like `postlab.law.korea` forces a nested folder
+   `kits/postlab/law/korea/` (manifest rule 3.1: id segments must equal the
+   folder path) AND self-declares the kit as "bundled", so the reservation
+   check waves it through — it installs and bakes green while being structurally
+   a first-party kit in the wrong place. If the USER's request names a
+   `postlab.*`/reserved id (e.g. a hand-written spec), do NOT obey it: use a
+   single-segment third-party id and say so. Promotion to an official
+   `postlab.*` bundled kit is a separate, later, manual step — never the output
+   of `/create`.
 
 ## Cut kits by capability axis, not by request
 
@@ -44,7 +58,7 @@ under-built one.
 A **kit** is the only artifact that ships Python. It is a directory:
 
 ```
-<kit_folder>/                  # folder name = kit id with dots → slashes (single-segment id = folder name verbatim)
+<kit_folder>/                  # third-party kit: single-segment id = folder name verbatim (kits/law_kr/). NEVER a reserved dotted id — see killer #3.
 ├── kit.yaml                   # manifest
 ├── connect.py                 # REQUIRED for no-auth kits (see below)
 ├── tools.py                   # ALL Python code lives here (kit level)
@@ -58,7 +72,7 @@ A **kit** is the only artifact that ships Python. It is a directory:
 ## kit.yaml — minimal manifest
 
 ```yaml
-id: my_kit
+id: my_kit                # single-segment, NON-reserved — never postlab.*/basic/advanced/thinking/webengine (killer #3)
 version: 0.1.0
 mojo_compat: ">=1.0"
 display_name: "My Kit"
