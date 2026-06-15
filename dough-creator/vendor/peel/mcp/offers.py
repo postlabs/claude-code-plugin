@@ -1,7 +1,7 @@
-"""``peel.mcp.offers`` — post-exec / connection offer tools.
+"""``peel.mcp.offers`` — post-exec / connection / canvas offer tools.
 
-Domain module for the ``resolve_schedule``, ``crystallize``, and
-``connect_offer`` tools. Exposes exactly two public symbols (``TOOLS`` and
+Domain module for the ``resolve_schedule``, ``crystallize``, ``connect_offer``,
+and ``show_workspace`` tools. Exposes exactly two public symbols (``TOOLS`` and
 ``HANDLERS``); all backend access goes through ``core``.
 """
 
@@ -60,6 +60,25 @@ TOOLS: list[types.Tool] = [
             "required": ["kits"],
         },
     ),
+    types.Tool(
+        name="show_workspace",
+        description=(
+            "Name a workspace surface (people/mail/calendar/messages/tasks/"
+            "project) to render it for the user in the app canvas. Use this "
+            "instead of describing the surface in prose — the bound view paints "
+            "in the right pane."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "surface": {
+                    "type": "string",
+                    "enum": ["people", "mail", "calendar", "messages", "tasks", "project"],
+                },
+            },
+            "required": ["surface"],
+        },
+    ),
 ]
 
 
@@ -91,8 +110,16 @@ async def connect_offer(args: dict) -> object:
     })
 
 
+async def show_workspace(args: dict) -> object:
+    surface = (args.get("surface") or "").strip()
+    if not surface:
+        return {"error": "surface is required"}
+    return await core.post("/oven/show-workspace", {"surface": surface})
+
+
 HANDLERS: dict = {
     "resolve_schedule": resolve_schedule,
     "crystallize": crystallize,
     "connect_offer": connect_offer,
+    "show_workspace": show_workspace,
 }

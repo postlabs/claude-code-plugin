@@ -63,7 +63,8 @@ async def _bake(dough_id: str, inputs: dict, glaze: dict | None) -> dict:
         return {"error": "bake timed out", "bake_id": state["bake_id"],
                 "detail": f"exceeded PEEL_BAKE_TIMEOUT={total}s (total)"}
     except httpx.HTTPStatusError as e:
-        return {"error": f"HTTP {e.response.status_code}", "detail": e.response.text}
+        return {"error": f"HTTP {e.response.status_code}", "bake_id": state["bake_id"],
+                "detail": e.response.text}
     except httpx.HTTPError as e:
         return {"error": "bake stream failed", "bake_id": state["bake_id"], "detail": str(e)}
 

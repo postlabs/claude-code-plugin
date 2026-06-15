@@ -41,10 +41,10 @@ def brand_name() -> str:
 
 def chat_session() -> str | None:
     """The CLI chat session this peel instance belongs to, if any. Injected by
-    the session's spawn env (``MOJO_PEEL_CHAT_SESSION``) and inherited by peel
+    the session's spawn env (``PEEL_CHAT_SESSION``) and inherited by peel
     as claude's child process. When present it's forwarded on bakes so the
     backend mirrors bake_* progress into that chat stream (BakeBlock)."""
-    return os.environ.get("MOJO_PEEL_CHAT_SESSION") or None
+    return os.environ.get("PEEL_CHAT_SESSION") or None
 
 
 def bake_timeout() -> float:

@@ -1,5 +1,5 @@
 {
   "name": "dough-creator",
   "description": "Author Toast automations from natural language, then test and deploy them - a build (create) / test / deploy (publish) command pipeline; create works without a running backend",
-  "version": "0.6.2"
+  "version": "0.7.0"
 }

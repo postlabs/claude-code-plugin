@@ -147,8 +147,9 @@ async def list_capabilities(args: dict) -> object:
     verbs = await core.get("/doughs/retrieval/verbs")
     ns_params = {"keyword": args["keyword"]} if args.get("keyword") else None
     namespaces = await core.get("/doughs/retrieval/namespaces", ns_params)
+    verbs_text = verbs if isinstance(verbs, str) else json.dumps(verbs)
     ns_text = namespaces if isinstance(namespaces, str) else json.dumps(namespaces)
-    return "== VERBS ==\n" + json.dumps(verbs) + "\n\n== NAMESPACES ==\n" + ns_text
+    return "== VERBS ==\n" + verbs_text + "\n\n== NAMESPACES ==\n" + ns_text
 
 
 HANDLERS: dict = {
