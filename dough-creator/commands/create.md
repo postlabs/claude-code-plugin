@@ -99,10 +99,17 @@ rule before writing any kit.yaml.
 
 ## 4. Propose, then confirm
 
-Present the plan in plain language — what gets composed, what gets created,
-which external services it touches. Flag any choice you made between two
-reasonable designs. Wait for the user's go before authoring. While building,
-don't narrate internal ids, file names, or schema fields.
+Present the plan in plain language — what the user gets and which external
+services it touches. Handle each choice the request left open by the cost of
+guessing wrong:
+- a harmless default they might still want changed → pick it and SAY so
+  ("3-line summaries, fetched in-browser — say to change either");
+- a knob they'd plausibly retune run-to-run → make it a dough input with that
+  default, changed per-run not per-rebuild;
+- a wrong guess that forces a rebuild (one-shot vs a saved store, a send/write
+  side-effect) → ask before authoring.
+Wait for the user's go. While building, don't narrate internal ids, file names,
+or schema fields.
 
 ## 5. Author (in the workspace)
 
