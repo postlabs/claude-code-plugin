@@ -97,6 +97,15 @@ When one request decomposes into reach + compute + rendering, that is SEVERAL
 kits, not one — see the kit-authoring skill's "Cut kits by capability axis"
 rule before writing any kit.yaml.
 
+A reach gap rarely has one obvious source — "fetch KOSPI data" could be an
+official API, a free library, or a scrape. Don't silently pick one, and don't
+bare-ask "which source?" (the user usually can't choose unaided): scout the
+realistic options (WebSearch / WebFetch their current docs), then offer 2-3
+compared on what they actually weigh — free vs keyed, official vs scraped
+(reliability/ToS), realtime vs delayed — with a recommendation, and confirm
+before building. Author against the docs you just fetched, not a half-remembered
+API — the step-6 unit-run is what proves the endpoint real.
+
 ## 4. Propose, then confirm
 
 Present the plan in plain language — what the user gets and which external
