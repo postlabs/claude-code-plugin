@@ -138,7 +138,7 @@ class Resolver:
                 return None
             if isinstance(obj, dict):
                 obj = obj.get(part)
-            elif isinstance(obj, list):
+            elif isinstance(obj, (list, str)):
                 if part.isdigit():
                     idx = int(part)
                     obj = obj[idx] if idx < len(obj) else None

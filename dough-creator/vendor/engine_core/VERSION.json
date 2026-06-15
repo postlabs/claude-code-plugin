@@ -1,6 +1,6 @@
 {
-  "mojo_rev": "aac28bbd7b337e43ea890d0dc8a0213968b7e633",
-  "synced_at": "2026-06-11T07:16:01.998442+00:00",
+  "mojo_rev": "d09954418d4375db7c00a284159ecb0ea683261b",
+  "synced_at": "2026-06-15T01:24:59.093644+00:00",
   "files": [
     "app/__init__.py",
     "app/doughs/__init__.py",
@@ -25,5 +25,6 @@
   "stubs": [
     "app/doughs/execution/__init__.py",
     "app/utils/__init__.py"
-  ]
+  ],
+  "smoke": "SMOKE PASS"
 }

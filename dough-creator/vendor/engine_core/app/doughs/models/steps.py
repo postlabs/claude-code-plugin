@@ -36,6 +36,11 @@ class ActionDef(AppBaseModel):
     with_: dict[str, Any] = Field(default_factory=dict, alias="with")
     to: str | dict[str, str] | None = None    # output mapping
     confirm: bool = False
+    timeout_ms: int | None = None
+    """Per-action override for the leaf-tool execution timeout. Provider
+    *refresh/sweep* tools do many calls (enumerate + N history fetches) and
+    legitimately exceed the 30s default meant for a single HTTP hit; they
+    declare a longer budget here. None → the engine default."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 

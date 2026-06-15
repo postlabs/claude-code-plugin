@@ -218,18 +218,29 @@ def items_table(
 
 
 def kit_outputs(dough: Dough) -> list["ValidationIssue"]:
-    """Kit-shipped flours must declare ``model:`` on every object/list output."""
+    """Kit-shipped flours must declare a shape on every object/list output —
+    a Pydantic ``model:`` ref (preferred) OR an inline ``schema:``.
+
+    Agent flours are exempt here: their object-output shape is governed by the
+    dedicated ``AGENT_OBJECT_OUTPUT_NEEDS_SCHEMA`` check in ``checks.action``
+    (which accepts ``schema:`` OR ``model:`` too). Firing both just double-reports
+    the same gap. ``schema:`` counts as a shape because ``drill.py`` drills it and
+    it switches structured output on — same as ``model:`` — which is the only
+    honest option for a tool that returns a free-form/dynamic-key ``dict``.
+    """
     if dough.id.startswith(_R11_EXEMPT_PREFIXES) or dough.id in ("basic", "advanced"):
+        return []
+    if dough.action is not None and dough.action.agent:
         return []
     errors: list[ValidationIssue] = []
     for name, out in dough.outputs.items():
-        if out.type in MODEL_REQUIRED_TYPES and not out.model:
+        if out.type in MODEL_REQUIRED_TYPES and not out.model and not out.schema_:
             errors.append(_v._issue(
                 f"kit flour '{dough.id}' output '{name}' is type '{out.type}' "
-                f"but has no `model:`",
-                hint=f"add `model: postlab.<kit>.types:<Model>` to "
-                     f"outputs.{name} — kit-shipped flours must declare a "
-                     f"Pydantic ref for object/list outputs",
+                f"but has no `model:` or `schema:`",
+                hint=f"add a Pydantic ref `model: postlab.<kit>.types:<Model>` "
+                     f"(preferred) or an inline `schema:` to outputs.{name} — "
+                     f"kit-shipped object/list outputs must declare a shape",
                 code=_v.ValidationCode.KIT_FLOUR_OUTPUT_MISSING_MODEL,
                 params={"dough": dough.id, "name": name, "type": out.type},
             ))
