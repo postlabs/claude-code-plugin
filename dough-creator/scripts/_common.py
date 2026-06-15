@@ -48,6 +48,7 @@ def call(method: str, path: str, body: dict | None = None) -> tuple[int, dict | 
     )
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
+            status = resp.status
             text = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", errors="replace")
@@ -58,9 +59,9 @@ def call(method: str, path: str, body: dict | None = None) -> tuple[int, dict | 
     except (urllib.error.URLError, OSError) as e:
         return 0, {"error": f"backend unreachable: {e}"}
     try:
-        return 200, json.loads(text)
+        return status, json.loads(text)
     except ValueError:
-        return 200, text
+        return status, text
 
 
 def report(status: int, data) -> int:
