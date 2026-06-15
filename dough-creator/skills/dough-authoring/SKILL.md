@@ -63,18 +63,18 @@ author a kit.
 ## Engine ground truths (verified — the guide's prose drifts on these)
 
 1. **Always ref with the bare-step-id drill: `${<step>.<key>}`.** The save
-   validator registers ONLY bare step ids in scope (`${fetch_ohlcv.candles}`
-   resolves; `${candles}` alone FAILS validation/save even though the runtime
+   validator registers ONLY bare step ids in scope (`${fetch_docs.documents}`
+   resolves; `${documents}` alone FAILS validation/save even though the runtime
    would resolve it). Use `${step.key}` everywhere, including `return:`.
 2. **`publish:` does not exist.** If the build guide mentions an optional
    `publish:` on `each:`/`all:`, it is stale prose — the key parses silently
    and is IGNORED.
 3. **A fan-out collects only the LAST body step's output**, one entry per item
    in input order, published under the bare last segment of the body's last
-   `dough:` id. Need two reads per item (e.g. backtest + eval)? The kit must
+   `dough:` id. Need two reads per item (e.g. summarize + classify)? The kit must
    ship a combined flour — you cannot collect two body steps.
 4. **Collected entries are envelopes.** Each item is the step's full output
-   dict — `${run_strategy}` is `[{"row": {...}}, ...]`, not `[row, ...]`. A
+   dict — `${summarize_doc}` is `[{"summary": {...}}, ...]`, not `[summary, ...]`. A
    flour consuming the collection must expect that envelope shape (check its
    spec/description; kit-authoring rule 9 is the producer side).
 5. **DUP_PUBLISH:** two steps calling the same flour in one scope is a

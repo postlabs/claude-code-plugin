@@ -45,7 +45,7 @@ to build along these axes:
   kits — the compute kit takes the data as an input and stays reusable when
   the data source changes.
 - **Vendor-neutral naming.** Never name a compute kit after a data vendor
-  (`binance_strategy_lab` for source-agnostic backtesting is wrong; the fetch
+  (`gdrive_textstats` for source-agnostic text statistics is wrong; the fetch
   kit may carry the vendor name, the analysis kit may not).
 - **Producer vocabulary only.** A tool's outputs describe its OWN domain.
   Mapping to another surface's vocabulary — chart-library study names, URL/pair
@@ -140,18 +140,18 @@ the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare),
    - *Pipeline* — a function that fetches AND computes AND writes. Ship the
      primitives, wire them in a composition.
    - *Hidden `each:`* — a tool that ITERATES over a caller-visible list of work
-     items (strategies, files, symbols). Ship the per-item primitive
-     (`run_strategy(candles, strategy)`) and let the composition fan out.
+     items (documents, files, records). Ship the per-item primitive
+     (`summarize_doc(document)`) and let the composition fan out.
    - *Multiple results* — a tool that returns several independently-useful
-     results (levels AND per-strategy stats AND a best-pick AND an assembled
-     report) is several tools: one primitive per result, plus at most a thin
+     results (entities AND per-section stats AND a representative excerpt AND an
+     assembled report) is several tools: one primitive per result, plus at most a thin
      `assemble_*` reshaper at the end.
    - *Buried judgment* — judgment calls (which result is "best", what to
      display) belong in a composition step (an agent flour or a user-visible
      input), not in tool Python.
 
    Counter-exception: a tool may still call sibling pure HELPER functions (a
-   backtest calling its simulator is one primitive).
+   parser calling its tokenizer is one primitive).
 6. **Per-profile storage:** `from _core.profile import profile_dir` and use a
    kit-private subdir — `profile_dir() / "my_kit_store"`. There is NO injected
    `ctx` object (older docs mentioning `ctx.workspace_dir` are phantom).
@@ -162,7 +162,7 @@ the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare),
    dough-authoring ground-truth 4 — the two halves are one contract). A tool
    whose input is the collected list of an `each:`/`all:` fan-out receives one
    `{"<output_key>": value}` dict PER ITEM (the engine collects each item's
-   full step output). Unwrap explicitly (`[e["row"] for e in rows]`) and
+   full step output). Unwrap explicitly (`[e["summary"] for e in items]`) and
    document the envelope in the docstring.
 
 ## Tool flour — dough.yaml shape
