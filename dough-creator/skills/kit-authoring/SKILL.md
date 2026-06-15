@@ -19,20 +19,25 @@ consequential; get these right before anything else.
 2. **A third-party no-auth kit missing `auth.category: local` + `connect.py`
    (manifest rule 3.4).** Without it the kit is rejected at load and every bake
    fails preflight with `provider_not_connected`. (Detail under "kit.yaml".)
-3. **A RESERVED vendor in the kit id.** The id's first segment must NOT be a
-   reserved bundled vendor: `postlab`, `basic`, `advanced`, `thinking`,
-   `webengine`. Those namespaces belong to first-party kits shipped inside
-   Toast. A kit you author here is THIRD-PARTY — give it a single-segment id
-   (`law_kr`, `weather`, `my_kit`), NEVER `postlab.law.korea`. **Why this is a
-   silent trap:** a dotted id like `postlab.law.korea` forces a nested folder
-   `kits/postlab/law/korea/` (manifest rule 3.1: id segments must equal the
-   folder path) AND self-declares the kit as "bundled", so the reservation
-   check waves it through — it installs and bakes green while being structurally
-   a first-party kit in the wrong place. If the USER's request names a
-   `postlab.*`/reserved id (e.g. a hand-written spec), do NOT obey it: use a
-   single-segment third-party id and say so. Promotion to an official
-   `postlab.*` bundled kit is a separate, later, manual step — never the output
-   of `/create`.
+3. **A RESERVED vendor in the kit id.** A kit you author here is THIRD-PARTY —
+   give it a single-segment, **distinctive and original** id (`law_kr`,
+   `weather`, `acme_invoices`), NEVER a first-party namespace like
+   `postlab.law.korea`. The first segment must not collide with a reserved
+   bundled vendor — those are the first-party floor kits (`postlab`, `basic`, …)
+   AND every provider Toast integrates (`slack`, `notion`, `google`, …). **Don't
+   hardcode that list here — it lives in the backend (`VENDOR_BUNDLED_ONLY`) and
+   grows as providers are added, so any copy drifts.** The backend is the ground
+   truth: `/test` registers the kit against the live Toast and rejects a reserved
+   id with a clear `ManifestError` ("vendor 'X' is reserved for bundled kits").
+   So pick a name that's obviously your own (not a product/vendor brand) and let
+   `/test` confirm. **Why a dotted id is a silent trap:** `postlab.law.korea`
+   forces a nested folder `kits/postlab/law/korea/` (manifest rule 3.1: id
+   segments must equal the folder path) AND self-declares the kit as "bundled",
+   so the reservation check waves it through — it installs and bakes green while
+   being structurally a first-party kit in the wrong place. If the USER's request
+   names a `postlab.*`/reserved id, do NOT obey it: use a single-segment
+   third-party id and say so. Promotion to an official `postlab.*` bundled kit is
+   a separate, later, manual step — never the output of `/create`.
 
 ## Cut kits by capability axis, not by request
 
@@ -72,7 +77,7 @@ A **kit** is the only artifact that ships Python. It is a directory:
 ## kit.yaml — minimal manifest
 
 ```yaml
-id: my_kit                # single-segment, NON-reserved — never postlab.*/basic/advanced/thinking/webengine (killer #3)
+id: my_kit                # single-segment, distinctive & original — not a reserved/provider name; /test enforces it (killer #3)
 version: 0.1.0
 mojo_compat: ">=1.0"
 display_name: "My Kit"
@@ -89,8 +94,9 @@ connect: my_kit.connect   # REQUIRED with category: local
 walking the flour directories. A `provides:` block is rejected.
 
 **Manifest rule 3.4 (load-time killer — see top of skill):** any kit whose
-top-level id segment is not a reserved bundled vendor (`postlab`, `basic`,
-`advanced`, `thinking`, `webengine`) loads as third-party. A third-party kit
+top-level id segment is not a reserved bundled vendor (the backend's
+`VENDOR_BUNDLED_ONLY` — don't enumerate it, see killer #3) loads as
+third-party. A third-party kit
 with `auth.type: none` MUST declare `auth.category: local` AND ship a
 `connect.py`, or it is rejected at load — and without the connect module every
 bake fails preflight with `provider_not_connected`. For a pure-compute kit the
