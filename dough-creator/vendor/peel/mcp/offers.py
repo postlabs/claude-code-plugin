@@ -63,8 +63,8 @@ TOOLS: list[types.Tool] = [
     types.Tool(
         name="show_workspace",
         description=(
-            "Name a workspace surface (people/mail/calendar/messages/tasks/"
-            "project) to render it for the user in the app canvas. Use this "
+            "Name a workspace surface (people/mail/calendar/messages/drives/"
+            "tasks/project) to render it for the user in the app canvas. Use this "
             "instead of describing the surface in prose — the bound view paints "
             "in the right pane."
         ),
@@ -73,7 +73,7 @@ TOOLS: list[types.Tool] = [
             "properties": {
                 "surface": {
                     "type": "string",
-                    "enum": ["people", "mail", "calendar", "messages", "tasks", "project"],
+                    "enum": ["people", "mail", "calendar", "messages", "drives", "tasks", "project"],
                 },
             },
             "required": ["surface"],

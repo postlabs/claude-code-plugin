@@ -79,8 +79,10 @@ VERBATIM: list[str] = [
     "mcp/find.py",
     "mcp/bake.py",
     "mcp/browse.py",
+    "mcp/capture.py",
     "mcp/offers.py",
     "mcp/manual.py",
+    "mcp/questions.py",
 ]
 
 # Present upstream, deliberately NOT vendored — see module docstring.

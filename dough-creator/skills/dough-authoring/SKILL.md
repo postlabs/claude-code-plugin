@@ -60,6 +60,15 @@ per-key descriptions and other locales come back regenerated).
 request needs to reach outside the workflow, do not bend an agent prompt —
 author a kit.
 
+**Exception — a reach gap against a WEBSITE is a capture, not a kit.** When the
+data lives behind a logged-in site (esp. one whose official API is paywalled or
+absent — X, internal dashboards), don't author an httpx kit that would need the
+user's cookies/tokens. Bracket a `browse` with `start_api_capture` →
+`promote_api`: it finds the page's own data API and caches a secret-free
+in-browser `fetch` (the browser attaches the origin's cookies). Emits a
+reusable `user.webapi_*` dough. Fall back to `promote_web_task` (DOM cache) when
+`promote_api` returns `ok:false` (server-rendered page, no JSON API).
+
 ## Engine ground truths (verified — the guide's prose drifts on these)
 
 1. **Always ref with the bare-step-id drill: `${<step>.<key>}`.** The save

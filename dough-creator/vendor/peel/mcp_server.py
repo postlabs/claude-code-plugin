@@ -68,8 +68,10 @@ import core  # noqa: E402
 import find  # noqa: E402
 import bake  # noqa: E402
 import browse  # noqa: E402
+import capture  # noqa: E402
 import offers  # noqa: E402
 import manual  # noqa: E402
+import questions  # noqa: E402
 
 
 # ── Tool catalog + dispatch table (assembled from the domain modules) ─────
@@ -79,15 +81,18 @@ import manual  # noqa: E402
 # app/cli/instructions/OVEN.md → "Ask the user when the request has a real fork".
 
 TOOLS: list[types.Tool] = (
-    find.TOOLS + bake.TOOLS + browse.TOOLS + offers.TOOLS + manual.TOOLS
+    find.TOOLS + bake.TOOLS + browse.TOOLS + capture.TOOLS
+    + offers.TOOLS + manual.TOOLS + questions.TOOLS
 )
 
 HANDLERS: dict = {
     **find.HANDLERS,
     **bake.HANDLERS,
     **browse.HANDLERS,
+    **capture.HANDLERS,
     **offers.HANDLERS,
     **manual.HANDLERS,
+    **questions.HANDLERS,
 }
 
 

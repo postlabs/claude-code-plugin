@@ -1,6 +1,6 @@
 {
-  "mojo_rev": "d84955f060d073f197947701171ed3f655bc21da",
-  "synced_at": "2026-06-15T01:18:21.525003+00:00",
+  "mojo_rev": "52140bc54c5b7f906e68bae3bde3ab5e7f99ea5c",
+  "synced_at": "2026-06-19T05:38:35.490511+00:00",
   "files": [
     "mcp_server.py",
     "mcp/__init__.py",
@@ -8,8 +8,10 @@
     "mcp/find.py",
     "mcp/bake.py",
     "mcp/browse.py",
+    "mcp/capture.py",
     "mcp/offers.py",
-    "mcp/manual.py"
+    "mcp/manual.py",
+    "mcp/questions.py"
   ],
   "excluded": [
     "peel.cmd",
