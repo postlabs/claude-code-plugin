@@ -88,7 +88,16 @@ For each part of the request not covered by an existing flour:
 | reasoning | judge/classify/summarize data the dough already holds (e.g. pick the best of 3 results the dough already fetched) | **user agent flour** → dough-authoring skill |
 | reach | call an API, compute, parse, read/write files (e.g. fetch the 3 results in the first place) | **new kit** → kit-authoring skill |
 | page scripting | inject JS into a page / read a page once (chart drawing, scraping a known surface) | **in scope** — a codegen kit tool + `webengine.browser.open_tab` → `webengine.browser.act(kind=eval_js)` composition |
+| internal data API capture | reuse a site's OWN internal/page data API for repeated reads (no official API, no httpx kit) — esp. when the user rejects the official API or asks to "capture the page's API" | **in scope (connected only)** — the **web-api-capture** skill: `start_api_capture` → `browse` → `promote_api`, then drive the capture→bake→repair loop AUTONOMOUSLY |
 | browser UI driving | multi-step clicking/typing through a site's UI | out of scope — point the user at the action-creator plugin (web doughs) |
+
+**Connected apicapture is the one carve-out from "never bakes."** It is inherently live
+(capture + bake-verify), so when you route there you DO go live — and you own the
+repair loop: a failed bake is a repair signal, not a question for the user. Diagnose the
+actual error, test the cheap hypothesis first (e.g. a 403 on an internal-API re-fetch is
+almost always missing `Authorization`/CSRF headers, not a hard block), and retry within a
+budget before surfacing. See the **web-api-capture** skill for the auth-walled-SPA
+playbook. The rest of `/create` still never bakes.
 
 The reasoning/reach boundary is the most consequential call: reasoning works
 OVER data the dough already holds; reach goes OUT to get it or compute it.
