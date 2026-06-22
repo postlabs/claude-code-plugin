@@ -1,0 +1,34 @@
+{
+  "name": "dough-creator-codex",
+  "version": "0.9.0",
+  "description": "Author Toast automations from natural language, then test and deploy them with a build, test, and publish workflow.",
+  "author": {
+    "name": "Toast team"
+  },
+  "keywords": [
+    "toast",
+    "automation",
+    "dough",
+    "kit",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Dough Creator",
+    "shortDescription": "Build, test, and publish Toast automations.",
+    "longDescription": "Dough Creator helps Codex author Toast automation workspaces, statically validate them, register and bake-test them against a running Toast backend, and publish verified artifacts.",
+    "developerName": "Toast team",
+    "category": "Productivity",
+    "capabilities": [
+      "Write",
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Create a Toast automation that summarizes new videos.",
+      "Test this Toast automation workspace.",
+      "Publish the verified Toast automation."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

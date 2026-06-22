@@ -1,0 +1,105 @@
+"""Preflight for dough-creator: detect the run tier.
+
+Stdlib only — runs on any Python 3. Prints a single JSON object:
+
+    {
+      "backend_up": true,
+      "tier": "connected",
+      "base_url": "http://127.0.0.1:18587/api/v1",
+      "diagnostics": {
+        "profiles": ["local", "5ca3000af7e4"],
+        "active_profile_ambiguous": true,
+        "doughs_dirs": {"local": "...\\profiles\\local\\doughs", ...}
+      }
+    }
+
+backend_up + tier + base_url are the contract. "tier" is "connected" when
+the Toast backend answers /health, "standalone" when it does not.
+Standalone is a SUPPORTED tier, not a failure: the creator continues with
+offline validation + direct tool unit runs and DEFERS publish/bake (see
+commands/create.md, step 0 Preflight). The plugin NEVER writes into
+profile directories by path — cwd is the source of truth: user doughs go
+through dough_publish.py (API), kits through kit_lifecycle.py install (API).
+
+The "diagnostics" block exists ONLY for the kit-install troubleshooting path.
+GOTCHA (verified 2026-06-11): the backend's ACTIVE profile is process-internal
+and NOT exposed by any API. When the user is logged in, the active profile is a
+JWT-derived key (e.g. 5ca3000af7e4), NOT "local" — and the kit install API
+copies into the ACTIVE profile while sys.path may be registered on another.
+When a kit installs but its tools do not bind (kit_lifecycle.py install
+verifies this), the workaround is to copy the kit source under EVERY listed
+{doughs_dir}/<kit_id>/ and install again. Never use these paths to choose
+write locations for doughs.
+
+Resolution order for the profiles root (diagnostics only):
+  1. TOAST_PROFILES_DIR env var (explicit override)
+  2. %APPDATA%/Toast/profiles   (installed app, current brand)
+  3. %APPDATA%/Mojo/profiles    (pre-rebrand installs)
+
+Exit code 0 in BOTH tiers (standalone is not an error); 1 only on
+unexpected internal errors.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+from _common import BASE_URL, utf8_io
+
+utf8_io()
+
+HEALTH_URL = BASE_URL.rsplit("/api/", 1)[0] + "/health"
+
+
+def backend_up() -> bool:
+    try:
+        with urllib.request.urlopen(HEALTH_URL, timeout=3) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def profiles_root() -> str | None:
+    override = os.environ.get("TOAST_PROFILES_DIR")
+    if override and os.path.isdir(override):
+        return override
+    appdata = os.environ.get("APPDATA", "")
+    for brand in ("Toast", "Mojo"):
+        cand = os.path.join(appdata, brand, "profiles")
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
+def main() -> int:
+    up = backend_up()
+    root = profiles_root()
+    profiles = []
+    if root:
+        profiles = sorted(
+            d for d in os.listdir(root)
+            if os.path.isdir(os.path.join(root, d, "doughs"))
+        )
+    doughs = {p: os.path.join(root, p, "doughs") for p in profiles} if root else {}
+    print(json.dumps({
+        "backend_up": up,
+        "tier": "connected" if up else "standalone",
+        "base_url": BASE_URL,
+        "diagnostics": {
+            "profiles": profiles,
+            "active_profile_ambiguous": len(profiles) > 1,
+            "doughs_dirs": doughs,
+        },
+    }, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as exc:  # unexpected only — tier detection never raises
+        print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
+        sys.exit(1)

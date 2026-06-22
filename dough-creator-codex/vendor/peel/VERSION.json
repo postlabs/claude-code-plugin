@@ -1,0 +1,22 @@
+{
+  "mojo_rev": "52140bc54c5b7f906e68bae3bde3ab5e7f99ea5c",
+  "synced_at": "2026-06-19T05:38:35.490511+00:00",
+  "files": [
+    "mcp_server.py",
+    "mcp/__init__.py",
+    "mcp/core.py",
+    "mcp/find.py",
+    "mcp/bake.py",
+    "mcp/browse.py",
+    "mcp/capture.py",
+    "mcp/offers.py",
+    "mcp/manual.py",
+    "mcp/questions.py"
+  ],
+  "excluded": [
+    "peel.cmd",
+    "README.md"
+  ],
+  "launcher": "run_peel.cmd",
+  "smoke": "SMOKE PASS"
+}
