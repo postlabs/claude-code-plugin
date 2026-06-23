@@ -22,7 +22,7 @@ result, the build dies. **You** run the loop:
 
 Surface to the user ONLY for: a genuine product fork (an irreversible write/send),
 real scope ambiguity, or true block after the budget. NOT for a recoverable error you
-can diagnose. (This mirrors `/dough-creator:test`'s "On failure, repair — do not hand it back.")
+can diagnose. (This mirrors the test step's "On failure, repair — do not hand it back.")
 A failed bake is a REPAIR SIGNAL, never a dead end — and never your first "it can't be
 done." Test the cheap hypothesis before declaring a wall.
 
