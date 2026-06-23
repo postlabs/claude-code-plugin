@@ -1,6 +1,6 @@
 {
   "name": "dough-creator",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Author Toast automations from natural language, then test and deploy them with a build, test, and publish workflow.",
   "author": {
     "name": "Toast team"
