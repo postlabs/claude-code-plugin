@@ -125,5 +125,5 @@ structured; keep it small; plain `string` needs none.
    as WARNINGS — carry them into the report.
 
 That is the authoring bar. **Running it on the real engine — the test-bake,
-the repair loop, "done = a real bake ran green" — is `/dough-creator:test`,
+the repair loop, "done = a real bake ran green" — is `/toast-creator:test`,
 not this step.** Author so it WILL bake; do not bake here.

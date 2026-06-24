@@ -1,4 +1,4 @@
-"""Shared helpers for the dough-creator scripts — stdlib only.
+"""Shared helpers for the toast-creator scripts — stdlib only.
 
 Sibling import: every script runs as ``python <plugin>/scripts/<name>.py``,
 so the scripts dir is ``sys.path[0]`` and ``import _common`` resolves without

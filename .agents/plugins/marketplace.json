@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "dough-creator",
+      "name": "toast-creator",
       "source": {
         "source": "local",
-        "path": "./dough-creator"
+        "path": "./toast-creator"
       },
       "policy": {
         "installation": "AVAILABLE",

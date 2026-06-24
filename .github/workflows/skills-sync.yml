@@ -1,8 +1,8 @@
 name: skills-sync
 
-# Fails if the generated dough-creator skills (skills/, skills-codex/) are out of
+# Fails if the generated toast-creator skills (skills/, skills-codex/) are out of
 # sync with their single source (skills-src/). Fix locally with:
-#   python dough-creator/skills-src/sync_skills.py
+#   python toast-creator/skills-src/sync_skills.py
 
 on:
   push:
@@ -17,5 +17,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - name: dough-creator skills in sync
-        run: python dough-creator/skills-src/sync_skills.py --check
+      - name: toast-creator skills in sync
+        run: python toast-creator/skills-src/sync_skills.py --check

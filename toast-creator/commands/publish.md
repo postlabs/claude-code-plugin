@@ -15,7 +15,7 @@ hands the user the controls. You author nothing and design nothing.
 **The gate:** `/publish` deploys ONLY artifacts whose `provenance.yaml` level
 is `verified`. An artifact that is merely `static` (authored + statically
 checked, never bake-proven) is NOT deployable — send the user to
-`/dough-creator:test` first. This is the test-gates-deploy discipline; do not
+`/toast-creator:test` first. This is the test-gates-deploy discipline; do not
 bypass it by baking here yourself (that is `/test`'s job).
 
 Tools: `python ${CLAUDE_PLUGIN_ROOT}/scripts/kit_lifecycle.py`,
@@ -32,7 +32,7 @@ Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/toast_env.py`. If `tier` is
 `provenance.yaml`. Partition the artifacts:
 - `verified` → deployable.
 - `static` or missing → NOT deployable; list them and tell the user to
-  `/dough-creator:test` first. If NOTHING is verified, stop after this report.
+  `/toast-creator:test` first. If NOTHING is verified, stop after this report.
 
 ## 2. Confirm the deployment is live and complete
 

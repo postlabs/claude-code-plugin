@@ -1,5 +1,5 @@
 ---
-name: dough-creator-codex
+name: toast-creator-codex
 description: Build, test, and publish Toast automations in Codex. Use when the user asks to create, modify, test, verify, deploy, or publish a Toast dough, Toast automation, dough workspace, or Toast kit.
 ---
 

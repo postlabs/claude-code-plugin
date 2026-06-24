@@ -1,4 +1,4 @@
-"""Preflight for dough-creator: detect the run tier.
+"""Preflight for toast-creator: detect the run tier.
 
 Stdlib only — runs on any Python 3. Prints a single JSON object:
 

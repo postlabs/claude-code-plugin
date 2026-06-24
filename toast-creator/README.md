@@ -1,4 +1,4 @@
-# dough-creator
+# toast-creator
 
 Claude Code plugin that builds **Toast automations** from natural-language
 requests. It is the kit-builder role, automated: where the in-app OVEN agent

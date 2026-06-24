@@ -129,6 +129,6 @@ their prior level.
 In the user's terms: what now runs green on the engine (with the bake as
 evidence), and what (if anything) is still unverified and why. The automations
 are live in THIS Toast and usable now. State the next step: run
-**`/dough-creator:publish`** to deploy (it ships only VERIFIED artifacts). If
+**`/toast-creator:publish`** to deploy (it ships only VERIFIED artifacts). If
 a failure turned out to be a design problem, say that the user should re-run
 `/create` to change the design.

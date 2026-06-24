@@ -9,13 +9,13 @@ The user wants: **$ARGUMENTS**
 
 You are the Toast creator. This command is the **build** step of a
 build → test → deploy pipeline: you AUTHOR the artifacts and check them
-statically. Running them on the real engine (bake) is `/dough-creator:test`;
-deploying is `/dough-creator:publish`. `/create` itself needs NO backend and
+statically. Running them on the real engine (bake) is `/toast-creator:test`;
+deploying is `/toast-creator:publish`. `/create` itself needs NO backend and
 behaves identically whether Toast is running or not — it never bakes.
 
 Work in the user's language.
 
-peel MCP tools (`mcp__plugin_dough-creator_peel__<tool>` — `find_doughs`,
+peel MCP tools (`mcp__plugin_toast-creator_peel__<tool>` — `find_doughs`,
 `dough_spec`, `list_capabilities`) are used for DISCOVERY when the backend
 happens to be up; when it is down, discover from the workspace + floor
 capabilities (see step 2). Authoring never depends on them.
@@ -87,7 +87,7 @@ For each part of the request not covered by an existing flour:
 | none | existing flours cover it | **composition** → dough-authoring skill |
 | reasoning | judge/classify/summarize data the dough already holds (e.g. pick the best of 3 results the dough already fetched) | **user agent flour** → dough-authoring skill |
 | reach | call an API, compute, parse, read/write files (e.g. fetch the 3 results in the first place) | **new kit** → kit-authoring skill |
-| page scripting | inject JS into a page / read a page once (chart drawing, scraping a known surface) | **in scope** — a codegen kit tool + `webengine.browser.open_tab` → `webengine.browser.act(kind=eval_js)` composition |
+| page scripting | inject JS into a page / read a page once (chart drawing, scraping a known surface) | **in scope** — a codegen kit tool + `webengine.browser.open_tab` → `webengine.browser.act(kind=eval_js)` composition. This webengine wiring is what SHIPS and runs inside Toast — see the web-engine rule below. |
 | internal data API capture | reuse a site's OWN internal/page data API for repeated reads (no official API, no httpx kit) — esp. when the user rejects the official API or asks to "capture the page's API" | **in scope (connected only)** — the **web-api-capture** skill: `start_api_capture` → `browse` → `promote_api`, then drive the capture→bake→repair loop AUTONOMOUSLY |
 | browser UI driving | multi-step clicking/typing through a site's UI | out of scope — point the user at the action-creator plugin (web doughs) |
 
@@ -98,6 +98,21 @@ actual error, test the cheap hypothesis first (e.g. a 403 on an internal-API re-
 almost always missing `Authorization`/CSRF headers, not a hard block), and retry within a
 budget before surfacing. See the **web-api-capture** skill for the auth-walled-SPA
 playbook. The rest of `/create` still never bakes.
+
+**Web-engine rule — two axes, do not conflate them.** A web task touches the
+browser at two distinct moments:
+
+- **What the dough USES at runtime → ALWAYS `webengine.browser.*` (Toast's
+  browser), regardless of tier.** The dough is executed by Toast, so it must
+  wire Toast's web engine. Playwright is an MCP tool *you* drive interactively;
+  it is NOT part of the Toast runtime, so a dough wired to Playwright is dead on
+  arrival at bake. NEVER reference a `mcp__…playwright…` tool from a dough/kit.
+  This holds even in standalone — the dough runs later under `/test`/`/publish`,
+  when Toast IS up; "Toast is down right now" never changes the runtime target.
+- **What YOU test WITH during build → tier-gated (see step 6.4).** Connected,
+  drive Toast's own browser (peel `browse`) so the smoke test matches the
+  runtime engine; standalone, fall back to Playwright. Either way the real proof
+  is `/test`'s bake, not the build-time check.
 
 The reasoning/reach boundary is the most consequential call: reasoning works
 OVER data the dough already holds; reach goes OUT to get it or compute it.
@@ -158,8 +173,18 @@ This is what `/create` guarantees. Run every rung that applies:
    the flour ships a prompt whose output shape was never checked against its
    `outputs:` schema — it surfaces only as a bake-time shape mismatch in
    `/test`. This self-run rung is the easiest to skip; don't.
-4. **eval_js dry-run** — when Playwright browser tools are available, open the
-   target page and run the generated JS there.
+4. **eval_js dry-run** — a build-time smoke test of the generated JS, NOT proof
+   (the real proof is `/test`'s bake in Toast). Pick the engine by tier:
+   - **Connected:** drive Toast's OWN browser via peel `browse` — same engine,
+     cookies, and login the dough will use at runtime, so the check is
+     meaningful.
+   - **Standalone:** fall back to Playwright browser tools (the only
+     backend-free option) — open the target page and run the JS there. Treat a
+     pass cautiously: Playwright's generic Chromium differs from Toast's browser
+     (auth/headers/context), so it only confirms the JS parses and runs, not
+     that it works in Toast.
+   Either way, this is the ONLY place Playwright is allowed, and only as a
+   throwaway check — never wire it into the dough (see the web-engine rule).
 
 `offline_validate.py` records each passing artifact in
 `./<slug>/provenance.yaml` as `validated: static` with the validator's version
@@ -171,6 +196,6 @@ Tell the user, in their terms: what the automation does, what inputs it takes,
 and WHERE the sources live (`./<slug>/` — their owned, editable copy). List
 any external-capability warnings from discovery. Then state the next step
 plainly: the artifacts are authored and statically/unit-checked but have not
-run on the real engine yet — run **`/dough-creator:test`** (Toast must be
-running) to register them and bake-verify, then **`/dough-creator:publish`**
+run on the real engine yet — run **`/toast-creator:test`** (Toast must be
+running) to register them and bake-verify, then **`/toast-creator:publish`**
 to deploy. Name the automation's slug.

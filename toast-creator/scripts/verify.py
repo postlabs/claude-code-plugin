@@ -1,4 +1,4 @@
-"""One-command green check for the dough-creator plugin — no mojo checkout needed.
+"""One-command green check for the toast-creator plugin — no mojo checkout needed.
 
     python scripts/verify.py
 
@@ -75,7 +75,7 @@ def _peel_checks() -> tuple[bool, str]:
 
 
 def main() -> int:
-    print("[verify] dough-creator\n")
+    print("[verify] toast-creator\n")
     checks = (
         ("pytest suite", _run_pytest),
         ("engine_core smoke (vendored slice)", _engine_smoke),

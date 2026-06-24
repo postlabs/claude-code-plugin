@@ -1,4 +1,4 @@
-"""Shared test setup for the dough-creator first-party scripts.
+"""Shared test setup for the toast-creator first-party scripts.
 
 The scripts are written to run as ``python scripts/<name>.py`` with the scripts
 dir on ``sys.path[0]`` (so ``import _common`` resolves). Tests reproduce that by

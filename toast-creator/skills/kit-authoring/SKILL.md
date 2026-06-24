@@ -27,17 +27,17 @@ consequential; get these right before anything else.
    AND every provider Toast integrates (`slack`, `notion`, `google`, …). **Don't
    hardcode that list here — it lives in the backend (`VENDOR_BUNDLED_ONLY`) and
    grows as providers are added, so any copy drifts.** The backend is the ground
-   truth: `/dough-creator:test` registers the kit against the live Toast and rejects a reserved
+   truth: `/toast-creator:test` registers the kit against the live Toast and rejects a reserved
    id with a clear `ManifestError` ("vendor 'X' is reserved for bundled kits").
    So pick a name that's obviously your own (not a product/vendor brand) and let
-   `/dough-creator:test` confirm. **Why a dotted id is a silent trap:** `postlab.law.korea`
+   `/toast-creator:test` confirm. **Why a dotted id is a silent trap:** `postlab.law.korea`
    forces a nested folder `kits/postlab/law/korea/` (manifest rule 3.1: id
    segments must equal the folder path) AND self-declares the kit as "bundled",
    so the reservation check waves it through — it installs and bakes green while
    being structurally a first-party kit in the wrong place. If the USER's request
    names a `postlab.*`/reserved id, do NOT obey it: use a single-segment
    third-party id and say so. Promotion to an official `postlab.*` bundled kit is
-   a separate, later, manual step — never the output of `/dough-creator:create`.
+   a separate, later, manual step — never the output of `/toast-creator:create`.
 
 ## Cut kits by capability axis, not by request
 
@@ -77,7 +77,7 @@ A **kit** is the only artifact that ships Python. It is a directory:
 ## kit.yaml — minimal manifest
 
 ```yaml
-id: my_kit                # single-segment, distinctive & original — not a reserved/provider name; `/dough-creator:test` enforces it (killer #3)
+id: my_kit                # single-segment, distinctive & original — not a reserved/provider name; `/toast-creator:test` enforces it (killer #3)
 version: 0.1.0
 mojo_compat: ">=1.0"
 display_name: "My Kit"
@@ -245,15 +245,15 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/tool_runner.py <kit_dir> <tool_symbol> --in
   a place to write. Never point it at a Toast profile path.
 - Author connect.py / rule 3.4 (`auth.category: local`) correctly NOW even
   though unit runs never execute connect.py — it is checked at install time
-  (`/dough-creator:test`), and a bad one fails the first install. Likewise a bad verb or a
+  (`/toast-creator:test`), and a bad one fails the first install. Likewise a bad verb or a
   `model:` ref to a missing type is a LOAD-time check: `offline_validate`
-  flags what it can, but some only surface when `/dough-creator:test` installs the kit, so
+  flags what it can, but some only surface when `/toast-creator:test` installs the kit, so
   double-check the verb against the closed list above.
 
-## Binding + baking is `/dough-creator:test`, not here
+## Binding + baking is `/toast-creator:test`, not here
 
 `kit_lifecycle.py install` / `reload` and the bake-and-repair loop live in
-`/dough-creator:test`. There, `install` copies the cwd dir into the active
+`/toast-creator:test`. There, `install` copies the cwd dir into the active
 profile and binds it (the script verifies it actually bound), the edit loop
 is "edit cwd → `reload`", and a failed bake is repaired in the cwd source and
 re-baked until green. Author here so that WILL succeed; don't install or bake
@@ -261,12 +261,12 @@ in the build step.
 
 Bake debugging (reading `error_code` from `recall`), the canonical `error_code`
 reference, and install/bind failure troubleshooting all live in
-`/dough-creator:test` — that is where bind/reload/bake run.
+`/toast-creator:test` — that is where bind/reload/bake run.
 
 ## Promotion (out of scope here)
 
 Promoting a kit born here into an official bundled kit — moving the source into
 the Toast repo's `src/backend/kits/`, running
 `scripts/repair_flour_entries.py --check` and `scripts/generate_kit_hashes.py`,
-and going through review — is a separate later step, NOT part of `/dough-creator:create`.
-Do not do it during `/dough-creator:create`.
+and going through review — is a separate later step, NOT part of `/toast-creator:create`.
+Do not do it during `/toast-creator:create`.

@@ -3,11 +3,11 @@
 repos:
   - repo: local
     hooks:
-      - id: dough-creator-skills-sync
-        name: dough-creator skills in sync
+      - id: toast-creator-skills-sync
+        name: toast-creator skills in sync
         # Fails the commit if skills/ or skills-codex/ drifted from skills-src/.
-        # Fix:  python dough-creator/skills-src/sync_skills.py
-        entry: python dough-creator/skills-src/sync_skills.py --check
+        # Fix:  python toast-creator/skills-src/sync_skills.py
+        entry: python toast-creator/skills-src/sync_skills.py --check
         language: system
         pass_filenames: false
         always_run: true

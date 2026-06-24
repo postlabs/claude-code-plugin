@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single-source sync for the dough-creator shared skills.
+"""Single-source sync for the toast-creator shared skills.
 
 This plugin ships ONE copy of scripts/vendor/tests and serves two harnesses
 from one folder:
@@ -22,11 +22,11 @@ So the canonical copy lives HERE once, with placeholders, and this script
 renders the per-harness output into ./skills/ (Claude) and ./skills-codex/
 (Codex).
 
-    edit  dough-creator/skills-src/<name>/SKILL.md     (the ONLY place to edit)
-    run   python dough-creator/skills-src/sync_skills.py        (regenerate both)
-    or    python dough-creator/skills-src/sync_skills.py --check (CI: fail on drift)
+    edit  toast-creator/skills-src/<name>/SKILL.md     (the ONLY place to edit)
+    run   python toast-creator/skills-src/sync_skills.py        (regenerate both)
+    or    python toast-creator/skills-src/sync_skills.py --check (CI: fail on drift)
 
-NOTE: skills-codex/dough-creator-codex/SKILL.md is Codex-only (it replaces
+NOTE: skills-codex/toast-creator-codex/SKILL.md is Codex-only (it replaces
 Claude's slash commands with an orchestration skill). It has no Claude twin,
 so it is NOT synced here — edit it in place.
 """
@@ -35,8 +35,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent          # dough-creator/skills-src
-PLUGIN = SRC.parent                            # dough-creator
+SRC = Path(__file__).resolve().parent          # toast-creator/skills-src
+PLUGIN = SRC.parent                            # toast-creator
 
 # Skills that are true twins across both skill dirs.
 SHARED_SKILLS = ["dough-authoring", "kit-authoring", "web-api-capture"]
@@ -46,9 +46,9 @@ HARNESSES = {
     "claude": {
         "out": PLUGIN / "skills",
         "${PLUGIN_ROOT}": "${CLAUDE_PLUGIN_ROOT}",
-        "{{test}}": "`/dough-creator:test`",
-        "{{build}}": "`/dough-creator:create`",
-        "{{publish}}": "`/dough-creator:publish`",
+        "{{test}}": "`/toast-creator:test`",
+        "{{build}}": "`/toast-creator:create`",
+        "{{publish}}": "`/toast-creator:publish`",
     },
     "codex": {
         "out": PLUGIN / "skills-codex",
