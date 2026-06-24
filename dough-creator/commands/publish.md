@@ -53,7 +53,14 @@ Tell the user, in their terms:
 - WHERE the editable source lives (`./<slug>/`) — edit there, then
   `/create` (design change) or `/test` (re-verify) → `/publish` again;
 - the management handles: `dough_publish.py delete <dough_id>` to remove a
-  dough, `kit_lifecycle.py uninstall <kit_id>` to remove a created kit;
+  dough, `kit_lifecycle.py uninstall <kit_id>` to remove a created kit.
+  ⚠️ **uninstall caveat:** `DELETE /kits/{id}` does a disk removal, and there is
+  evidence it can delete the **original** install-source path, not just the
+  profile copy (unrecoverable). Treat uninstall as
+  destructive: confirm the workspace source (`./<slug>/kits/<kit_id>/`) is
+  committed/backed up first, and never point install at a dir you cannot
+  afford to lose. Editing a kit does NOT need uninstall — edit the source and
+  re-run `/test` (it `reload`s);
 - anything left undeployed (still `static`) and that `/test` finishes it.
 
 ## Note — distribution beyond this machine

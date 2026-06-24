@@ -11,6 +11,12 @@ holds. Scope is deliberately narrow — the genuinely duplicated pieces:
   * ``call()``     — one HTTP round-trip → ``(status, json-or-text)``.
   * ``report()``   — emit the ``{status, body}`` line, return the exit code.
   * ``PLUGIN_ROOT``— the plugin dir, for resolving vendored trees.
+  * ``profiles_root()`` / ``list_profiles()`` — locate the Toast profiles tree
+    and the profiles that hold a ``doughs/`` dir (diagnostics).
+  * ``resolve_active_profile()`` — authoritatively identify the backend's
+    ACTIVE profile by correlating the live dough registry against disk. Shared
+    because both ``toast_env`` (report it) and ``kit_lifecycle`` (verify a kit
+    landed in it) need the same answer the backend would give.
 
 NOT shared here on purpose: the per-script sys.path insertion of vendored
 trees (each script owns its own load order) and the ruamel YAML config
@@ -68,3 +74,104 @@ def report(status: int, data) -> int:
     """Print the ``{status, body}`` line; return 0 on 2xx, else 1."""
     print(json.dumps({"status": status, "body": data}, ensure_ascii=False))
     return 0 if 200 <= status < 300 else 1
+
+
+# --- Active-profile resolution -------------------------------------------
+#
+# The backend resolves the ACTIVE profile server-side from the logged-in
+# session (a JWT-derived key like ``5ca3000af7e4``, bridged into the running
+# process at login — see POST /profile/migrate). Verified 2026-06-24: NO API
+# exposes that key directly (/profile, /whoami, /settings/profile, /me all 404
+# or omit it). dough_publish.py never needs it precisely because the backend
+# applies it for every unauthenticated localhost call.
+#
+# But the active profile is still knowable WITHOUT guessing: the live
+# ``GET /doughs`` registry IS the active profile's on-disk content, dough for
+# dough. So the profile whose ``doughs/`` tree covers the live id set is the
+# active one — the same profile a publish/install lands in. This correlation is
+# authoritative (it reads the backend's own truth), unlike "more than one
+# profile dir exists → ambiguous", which is a disk-count guess that fires even
+# when the backend knows exactly which profile is live.
+
+
+def profiles_root() -> str | None:
+    """Locate the Toast profiles dir: explicit override → Toast → Mojo → None."""
+    override = os.environ.get("TOAST_PROFILES_DIR")
+    if override and os.path.isdir(override):
+        return override
+    appdata = os.environ.get("APPDATA", "")
+    for brand in ("Toast", "Mojo"):
+        cand = os.path.join(appdata, brand, "profiles")
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
+def list_profiles(root: str | None) -> list[str]:
+    """Profiles under *root* that carry a ``doughs/`` dir (sorted)."""
+    if not root:
+        return []
+    return sorted(
+        d for d in os.listdir(root)
+        if os.path.isdir(os.path.join(root, d, "doughs"))
+    )
+
+
+def live_dough_ids() -> list[str] | None:
+    """The active profile's live dough ids per ``GET /doughs`` (None if down)."""
+    status, data = call("GET", "/doughs")
+    if status != 200:
+        return None
+    items = data.get("doughs", []) if isinstance(data, dict) else (
+        data if isinstance(data, list) else [])
+    return [d["id"] for d in items
+            if isinstance(d, dict) and isinstance(d.get("id"), str)]
+
+
+def resolve_active_profile(
+    root: str | None = None,
+    profiles: list[str] | None = None,
+    ids: list[str] | None = None,
+) -> tuple[str | None, dict]:
+    """Identify the backend's ACTIVE profile by registry↔disk correlation.
+
+    Returns ``(active_profile | None, evidence)``. ``active_profile`` is the
+    profile whose on-disk ``doughs/`` tree uniquely best-covers the live
+    registry (an id ``a.b.c`` maps to ``doughs/a/b/c``). It is None ONLY when
+    the correlation genuinely cannot decide: backend unreachable, no profiles
+    on disk, nothing matches, or a tie. ``evidence`` carries the method,
+    per-profile coverage, and the winning match ratio for diagnostics.
+    """
+    if root is None:
+        root = profiles_root()
+    if not root:
+        return None, {"method": "registry_disk_correlation", "reason": "no_profiles_root"}
+    if profiles is None:
+        profiles = list_profiles(root)
+    if ids is None:
+        ids = live_dough_ids()
+    if ids is None:
+        return None, {"method": "registry_disk_correlation",
+                      "reason": "backend_unreachable"}
+    if not ids:
+        return None, {"method": "registry_disk_correlation", "reason": "empty_registry"}
+
+    coverage = {}
+    for p in profiles:
+        base = os.path.join(root, p, "doughs")
+        coverage[p] = sum(
+            1 for i in ids if os.path.isdir(os.path.join(base, *i.split(".")))
+        )
+    evidence = {"method": "registry_disk_correlation",
+                "live_dough_count": len(ids), "coverage": coverage}
+    best = max(coverage.values(), default=0)
+    winners = [p for p, c in coverage.items() if c == best]
+    if best == 0:
+        evidence["reason"] = "no_disk_match"
+        return None, evidence
+    if len(winners) != 1:
+        evidence["reason"] = "ambiguous_tie"
+        evidence["candidates"] = winners
+        return None, evidence
+    evidence["match_ratio"] = round(best / len(ids), 4)
+    return winners[0], evidence

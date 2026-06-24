@@ -8,7 +8,9 @@ Stdlib only — runs on any Python 3. Prints a single JSON object:
       "base_url": "http://127.0.0.1:18587/api/v1",
       "diagnostics": {
         "profiles": ["local", "5ca3000af7e4"],
-        "active_profile_ambiguous": true,
+        "active_profile": "5ca3000af7e4",
+        "active_profile_evidence": {"method": "registry_disk_correlation", ...},
+        "active_profile_ambiguous": false,
         "doughs_dirs": {"local": "...\\profiles\\local\\doughs", ...}
       }
     }
@@ -22,14 +24,17 @@ profile directories by path — cwd is the source of truth: user doughs go
 through dough_publish.py (API), kits through kit_lifecycle.py install (API).
 
 The "diagnostics" block exists ONLY for the kit-install troubleshooting path.
-GOTCHA (verified 2026-06-11): the backend's ACTIVE profile is process-internal
-and NOT exposed by any API. When the user is logged in, the active profile is a
-JWT-derived key (e.g. 5ca3000af7e4), NOT "local" — and the kit install API
-copies into the ACTIVE profile while sys.path may be registered on another.
-When a kit installs but its tools do not bind (kit_lifecycle.py install
-verifies this), the workaround is to copy the kit source under EVERY listed
-{doughs_dir}/<kit_id>/ and install again. Never use these paths to choose
-write locations for doughs.
+ACTIVE PROFILE (verified 2026-06-24): the backend resolves the active profile
+server-side from the logged-in session (a JWT-derived key like 5ca3000af7e4,
+NOT "local" when signed in) and exposes it through NO API. But it is still
+knowable without guessing: the live GET /doughs registry IS the active
+profile's on-disk content, so the profile whose doughs/ tree covers that id set
+is the active one — the same profile dough_publish.py / kit install write to.
+``active_profile`` reports that correlation; ``active_profile_ambiguous`` is
+true ONLY when the correlation genuinely cannot decide (backend down, no
+profiles, or a real tie) — it is NOT raised merely because >1 profile dir
+exists. Do NOT hand-copy kits across every profile on the strength of this
+block; that footgun is gone (see commands/test.md and kit_lifecycle.py).
 
 Resolution order for the profiles root (diagnostics only):
   1. TOAST_PROFILES_DIR env var (explicit override)
@@ -47,7 +52,13 @@ import sys
 import urllib.error
 import urllib.request
 
-from _common import BASE_URL, utf8_io
+from _common import (
+    BASE_URL,
+    list_profiles,
+    profiles_root,
+    resolve_active_profile,
+    utf8_io,
+)
 
 utf8_io()
 
@@ -62,35 +73,30 @@ def backend_up() -> bool:
         return False
 
 
-def profiles_root() -> str | None:
-    override = os.environ.get("TOAST_PROFILES_DIR")
-    if override and os.path.isdir(override):
-        return override
-    appdata = os.environ.get("APPDATA", "")
-    for brand in ("Toast", "Mojo"):
-        cand = os.path.join(appdata, brand, "profiles")
-        if os.path.isdir(cand):
-            return cand
-    return None
-
-
 def main() -> int:
     up = backend_up()
     root = profiles_root()
-    profiles = []
-    if root:
-        profiles = sorted(
-            d for d in os.listdir(root)
-            if os.path.isdir(os.path.join(root, d, "doughs"))
-        )
+    profiles = list_profiles(root)
     doughs = {p: os.path.join(root, p, "doughs") for p in profiles} if root else {}
+
+    # The active profile is correlation-knowable only when the backend is up to
+    # answer GET /doughs. Standalone defers publish/bake, so it is moot there.
+    active, evidence = (resolve_active_profile(root, profiles)
+                        if up else (None, {"method": "registry_disk_correlation",
+                                           "reason": "standalone"}))
+
     print(json.dumps({
         "backend_up": up,
         "tier": "connected" if up else "standalone",
         "base_url": BASE_URL,
         "diagnostics": {
             "profiles": profiles,
-            "active_profile_ambiguous": len(profiles) > 1,
+            "active_profile": active,
+            "active_profile_evidence": evidence,
+            # True only when we ARE connected, there is something to choose, and
+            # the authoritative correlation still could not decide. Never a bare
+            # "more than one profile dir exists" guess.
+            "active_profile_ambiguous": up and active is None and len(profiles) > 1,
             "doughs_dirs": doughs,
         },
     }, ensure_ascii=False))

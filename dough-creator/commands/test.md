@@ -56,24 +56,28 @@ testing.
   changed. (Static checks in `/create` should have caught these; a 422 here
   means the workspace drifted or skipped `/create`'s build bar.)
 
-**Install/bind failures (one root cause, many faces):**
+**Install/bind failures (half-load, many faces):**
 
 | Symptom | Meaning |
 |---|---|
-| install → 400 "Failed to load kit — check kit.yaml" | usually NOT the yaml |
-| bake → "Tool not found: '<kit>.<tool>' — no kit registered" | same cause |
-| reload → "Kit not found" | same cause |
+| install → 400 "Failed to load kit — check kit.yaml" | the Python failed to import |
+| bake → "Tool not found: '<kit>.<tool>' — no kit registered" | tool didn't bind / half-load |
+| bake → `dough_not_found` for `<kit>.<tool>` | tool bound but its wrapper flour didn't register |
 
-Root cause (verified): the backend's ACTIVE profile (JWT-derived when logged
-in) differs from the profile whose doughs dir is on sys.path — the install
-copies the kit where Python can't import it. `kit_lifecycle.py install`
-auto-verifies binding and prints this hint; the last-resort workaround is
-copying the kit source under EVERY `{profiles}/<key>/doughs/<kit_id>/` and
-installing again (`toast_env.py` profile enumeration exists ONLY for this
-test-time diagnostic path — never to choose authoring locations, and this is
-the one path where writing under a profile is sanctioned, overriding
-`/create`'s authoring prohibition). User doughs are unaffected: they go through
-the publish API (`dough_publish.py`), which always targets the backend's active
+`kit_lifecycle.py install` now runs a STRONG verify after installing — it
+requires the kit's tools to register WITH a populated schema, every bundled
+wrapper flour `<kit_id>.<tool>` to be live in the registry, AND the source to
+land under the **active** profile (which `toast_env.py` now reports
+authoritatively as `active_profile`, by correlating the live registry against
+disk — no more "more than one profile dir, therefore ambiguous" guessing). On a
+failed verify it auto-issues a `reload` (forces a clean Python reimport) and
+re-verifies once. If it still reports `verify: FAILED`, read the `checks`/`hint`
+it prints — that is a genuine backend half-load/idempotency bug, **not** a cue
+to hand-copy the kit under other profiles.
+Do NOT copy a kit's source into `{profiles}/<key>/doughs/<kit_id>/` by hand: it
+is unnecessary (install targets the active profile) and risks a self-copy that
+later `uninstall` can wipe. User doughs are likewise unaffected — they go
+through the publish API (`dough_publish.py`), which always targets the active
 profile.
 
 ## 3. Bake-verify the root doughs — with a repair loop

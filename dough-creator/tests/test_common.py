@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import urllib.error
 
 import pytest
@@ -121,3 +122,63 @@ def test_report_exit_code_follows_2xx(status, expected_rc, capsys):
     assert rc == expected_rc
     out = json.loads(capsys.readouterr().out)
     assert out == {"status": status, "body": {"k": "v"}}
+
+
+# --- resolve_active_profile: registry↔disk correlation -------------------
+
+def _seed_profiles(root, layout):
+    """layout: {profile: [dough_id, ...]} → create doughs/<id-as-path> dirs."""
+    for prof, ids in layout.items():
+        for i in ids:
+            (root / prof / "doughs" / os.path.join(*i.split("."))).mkdir(
+                parents=True, exist_ok=True)
+        (root / prof / "doughs").mkdir(parents=True, exist_ok=True)
+
+
+def test_resolve_active_profile_picks_best_covered(tmp_path):
+    # 'active' carries every live id (incl. the user dough); 'local' lacks it;
+    # 'empty' has a doughs dir but nothing in it.
+    (tmp_path / "empty" / "doughs").mkdir(parents=True)
+    _seed_profiles(tmp_path, {
+        "active": ["basic.greet", "advanced.x.y", "user.mine"],
+        "local": ["basic.greet", "advanced.x.y"],
+    })
+    live = ["basic.greet", "advanced.x.y", "user.mine"]
+    active, ev = _common.resolve_active_profile(
+        str(tmp_path), ["active", "empty", "local"], live)
+    assert active == "active"
+    assert ev["coverage"] == {"active": 3, "empty": 0, "local": 2}
+    assert ev["match_ratio"] == 1.0
+
+
+def test_resolve_active_profile_tie_is_undetermined(tmp_path):
+    _seed_profiles(tmp_path, {
+        "a": ["basic.greet", "advanced.x.y"],
+        "b": ["basic.greet", "advanced.x.y"],
+    })
+    live = ["basic.greet", "advanced.x.y"]
+    active, ev = _common.resolve_active_profile(str(tmp_path), ["a", "b"], live)
+    assert active is None
+    assert ev["reason"] == "ambiguous_tie"
+    assert sorted(ev["candidates"]) == ["a", "b"]
+
+
+def test_resolve_active_profile_no_match_is_undetermined(tmp_path):
+    (tmp_path / "a" / "doughs").mkdir(parents=True)
+    active, ev = _common.resolve_active_profile(str(tmp_path), ["a"], ["user.mine"])
+    assert active is None
+    assert ev["reason"] == "no_disk_match"
+
+
+def test_resolve_active_profile_backend_down(tmp_path, monkeypatch):
+    # ids=None path: call() reports backend unreachable → undetermined, no crash.
+    monkeypatch.setattr(_common, "call", lambda *a, **k: (0, {"error": "x"}))
+    active, ev = _common.resolve_active_profile(str(tmp_path), [])
+    assert active is None
+    assert ev["reason"] == "backend_unreachable"
+
+
+def test_live_dough_ids_parses_envelope(monkeypatch):
+    monkeypatch.setattr(_common, "call", lambda *a, **k: (
+        200, {"doughs": [{"id": "user.a"}, {"id": "basic.b"}, {"no": "id"}]}))
+    assert _common.live_dough_ids() == ["user.a", "basic.b"]
