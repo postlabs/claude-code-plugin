@@ -118,9 +118,256 @@ async def connect() -> AsyncGenerator[AuthEvent, None]:
     yield auth_done(_PROVIDER, method="local")
 ```
 
+### When the kit needs a user secret — BYOK credentials
+
+If a tool needs a secret the USER supplies (an API key, a PAT, a brokerage
+app's client_id/secret), do NOT take it as a tool input. A secret-as-input
+forces the user to paste it into every bake — or hardcode it into a dough YAML
+in plaintext — and it never persists. Declare it as a CREDENTIAL instead: Toast
+collects it ONCE in Settings, stores it masked, and every tool reads it back
+from the per-profile credential store. This is the BYOK tier
+(`auth.type: credentials` | `api_key` | `bearer`). The host already renders the
+form, persists the values, and shows the connect state — **the host side needs
+no change**; the kit only declares the fields and reads them back. (Full OAuth2
+— browser loopback, managed app credentials — is a heavier tier, still out of
+scope here.)
+
+A credentials kit is NOT a `category: local` kit — rule 3.4 and its no-op
+connect.py above do NOT apply. Replace the `auth:` block and ship a REAL
+connect.py that stores + checks the secret:
+
+```yaml
+auth:
+  type: credentials        # credentials (multi-field) | api_key | bearer
+  category: byok           # user brings their own key — NOT category: local
+setup_url: https://provider.example.com/developer   # where the user mints the key (optional)
+fields:
+  - name: client_id        # the value is stored under this key
+    label: Client ID       # form label shown in the dialog
+    type: secret           # secret → masked input; string → plain
+    required: true
+    placeholder: "abcd1234"
+    description: "From the provider's developer portal."
+  - name: client_secret
+    label: Client Secret
+    type: secret
+    required: true
+connect: my_kit.connect
+```
+
+```python
+"""<Kit> connect — BYOK credentials: store + validate a user-supplied secret."""
+from __future__ import annotations
+from typing import AsyncGenerator
+from _core.auth_events import (
+    AuthEvent, AuthStatus, auth_started, auth_waiting, auth_done, auth_error,
+)
+from _core.profile import profile_dir
+from _core.token_store import ScopedTokenStore
+
+_PROVIDER = "my_kit"
+_KIT_ID = "my_kit"   # kit id verbatim; store lands at {profile}/credentials/plugin__my_kit/
+
+def _store() -> ScopedTokenStore:
+    return ScopedTokenStore(profile_dir(), _KIT_ID)
+
+def _configured() -> bool:
+    c = _store().load() or {}
+    return bool(c.get("client_id") and c.get("client_secret"))   # match your required fields
+
+async def check(account: str = "default") -> AuthStatus:
+    if _configured():
+        return AuthStatus(authenticated=True, method="byok")
+    return AuthStatus(authenticated=False, method=None)
+
+async def connect() -> AsyncGenerator[AuthEvent, None]:
+    yield auth_started(_PROVIDER)
+    if not _configured():
+        yield auth_error(_PROVIDER, "Enter your credentials above to connect.")
+        return
+    yield auth_waiting(_PROVIDER, message="Validating credentials...")
+    # Optional but recommended: prove the secret works (exchange it / ping the
+    # API) here, and yield auth_error on rejection instead of auth_done.
+    yield auth_done(_PROVIDER, method="byok")
+
+async def set_credentials(values: dict) -> dict:
+    """Persist form values. The host calls this from POST /kits/{id}/credentials.
+    Return {"ok": True} on success, {"ok": False, "error": ...} otherwise."""
+    if not isinstance(values, dict):
+        return {"ok": False, "error": "values must be an object"}
+    store = _store()
+    merged = dict(store.load() or {})
+    for k, v in values.items():
+        if v is None or str(v).strip() == "":
+            merged.pop(k, None)        # empty value clears that field
+        else:
+            merged[k] = str(v).strip()
+    store.save(merged)
+    return {"ok": True}
+
+async def disconnect() -> bool:
+    _store().delete()
+    return True
+```
+
+In **tools.py** read the secret from the store, never from `inputs:`:
+
+```python
+from _core.profile import profile_dir
+from _core.token_store import ScopedTokenStore
+
+def _creds() -> dict:
+    c = ScopedTokenStore(profile_dir(), "my_kit").load() or {}
+    if not (c.get("client_id") and c.get("client_secret")):
+        raise PermissionError("my_kit not connected")   # host → not_authenticated
+    return c
+```
+
+Then drop `client_id` / `client_secret` / `access_token` from every flour's
+`inputs:` and `action.with:`. Two completion shapes:
+- **Token-exchange API** (OAuth2 client_credentials, like a brokerage): exchange
+  the secret for a short-lived `access_token` INSIDE the tool, and cache it in
+  the same store with its expiry — re-mint when expired. Callers never see a
+  token.
+- **Plain key** (`api_key` / `bearer`): let `_core.credentials.KitCredentialsHandler`
+  inject the header for you (`X-API-Key` / `Authorization: Bearer`) — use that
+  shortcut when no exchange is needed.
+
+### When the kit needs full OAuth2 (browser consent) — BYOK
+
+Use this when the provider needs an OAuth2 authorization-code flow (a "Sign in
+with X" consent screen), not a static key. Toast ships a config-driven OAuth2
+engine — `_core.oauth_base.GenericOAuth2Provider` — so a standard provider needs
+only a config + a thin connect.py; you write NO token/refresh/loopback-server
+code. BYOK only: the user registers their own OAuth app at the provider and
+pastes client_id/secret. (Managed apps, where Toast holds the secret, are
+first-party only — not authorable here.)
+
+```yaml
+auth:
+  type: oauth2
+  category: byok
+  adapter: my_kit.auth:get_auth_client    # module:symbol returning the provider (existence-validated at load)
+  oauth2:
+    byok: true
+    scopes: [read_scope, write_scope]
+    setup_url: https://provider.example.com/developers   # where the user registers an app
+    authorize_url: https://provider.example.com/oauth/authorize
+    token_url: https://provider.example.com/oauth/token
+connect: my_kit.connect
+fields:                                    # the BYOK app credentials the user pastes once
+  - name: client_id
+    label: Client ID
+    type: secret
+    required: true
+  - name: client_secret
+    label: Client Secret
+    type: secret
+    required: true
+```
+
+**auth.py** — config over the shared engine, nothing else:
+
+```python
+import functools
+from _core.oauth_base import GenericOAuth2Provider, OAuth2Config
+from _core.profile import credentials_dir as kit_credentials_dir
+
+_KIT_ID = "my_kit"
+_CONFIG = OAuth2Config(
+    provider_name="my_kit",
+    authorize_url="https://provider.example.com/oauth/authorize",
+    token_url="https://provider.example.com/oauth/token",
+    scopes=["read_scope", "write_scope"],
+    redirect_port=17XXX,                  # a free loopback port unique to this kit
+    userinfo_url="https://provider.example.com/userinfo",  # optional — for a display name
+    token_expiry_default=3600,
+)
+
+@functools.cache
+def _client() -> GenericOAuth2Provider:
+    return GenericOAuth2Provider(kit_credentials_dir(_KIT_ID), _CONFIG)
+
+async def get_auth_client() -> GenericOAuth2Provider:
+    return _client()
+```
+
+**connect.py** — wire the host surface to the engine (the engine owns the flow):
+
+```python
+from __future__ import annotations
+import webbrowser
+from typing import AsyncGenerator
+from _core.auth_events import (
+    AuthEvent, AuthStatus, auth_started, auth_waiting, auth_done, auth_error, auth_cancelled,
+)
+from _core.oauth_base import PersonalCredentials
+from .auth import get_auth_client
+
+_PROVIDER = "my_kit"
+
+async def check() -> AuthStatus:
+    st = await (await get_auth_client()).check_status()
+    return AuthStatus(authenticated=st.connected,
+                      method="oauth" if st.connected else None, user_info=st.user_info)
+
+async def connect() -> AsyncGenerator[AuthEvent, None]:
+    yield auth_started(_PROVIDER)
+    client = await get_auth_client()
+    try:
+        flow = await client.initiate_oauth_flow()          # raises if no creds saved yet
+    except ValueError:
+        yield auth_error(_PROVIDER, "Enter your client_id/client_secret above first.")
+        return
+    webbrowser.open(flow["authorize_url"])
+    yield auth_waiting(_PROVIDER, message="Waiting for authorization in your browser...")
+    result = await client.wait_for_flow(flow["flow_id"], timeout=300)
+    status = result.get("status")
+    if status == "authenticated": yield auth_done(_PROVIDER)
+    elif status == "cancelled":   yield auth_cancelled(_PROVIDER)
+    elif status == "expired":     yield auth_error(_PROVIDER, "Authorization timed out (5 min).")
+    else:                         yield auth_error(_PROVIDER, f"OAuth failed: {result.get('error') or status}")
+
+async def cancel() -> bool:
+    return await (await get_auth_client()).cancel_flows()
+
+async def set_credentials(values: dict) -> dict:
+    cid = (values or {}).get("client_id", ""); secret = (values or {}).get("client_secret", "")
+    if not cid or not secret:
+        return {"ok": False, "error": "client_id and client_secret are required"}
+    client = await get_auth_client()
+    creds = PersonalCredentials(client_id=cid, client_secret=secret)
+    if not await client.validate_personal_credentials(creds):
+        return {"ok": False, "error": "credentials rejected by provider"}
+    client.save_personal_credentials(creds)
+    return {"ok": True}
+
+async def disconnect() -> bool:
+    return await (await get_auth_client()).revoke()
+```
+
+**tools.py** gets a bearer-authed httpx client straight from the engine:
+
+```python
+from .auth import get_auth_client
+
+async def _http():
+    client = await (await get_auth_client()).get_authenticated_client()
+    if client is None:
+        raise PermissionError("my_kit not connected")
+    return client
+```
+
+Provider quirks stay in config or one override — never a re-implemented flow:
+- non-standard scope param (Slack uses `user_scope`) → `OAuth2Config(scope_param="user_scope")`
+- extra authorize params (`access_type=offline`, `prompt=consent`) → `extra_authorize_params={...}`
+- a userinfo shape that isn't `sub`/`name`/`email` → subclass `GenericOAuth2Provider`, override `_extract_user_info`
+
+Pick a unique `redirect_port` and tell the user to register
+`https://localhost:<port>/callback` as the app's Authorized Redirect URL.
+
 Other fields when needed: `requires: [<kit_id>]` (cross-kit Python imports —
-the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare),
-`auth.adapter:` (OAuth kits — out of v1 scope).
+the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare).
 
 ## tools.py — the rules
 
@@ -161,7 +408,8 @@ the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare),
 6. **Per-profile storage:** `from _core.profile import profile_dir` and use a
    kit-private subdir — `profile_dir() / "my_kit_store"`. There is NO injected
    `ctx` object (older docs mentioning `ctx.workspace_dir` are phantom).
-   Tokens: `from _core.tokens import read_tokens, write_tokens` (auth kits).
+   Secrets: read user-supplied credentials from `_core.token_store.ScopedTokenStore`
+   (see "BYOK credentials" above), NOT from tool `inputs:`.
 7. Auth failures raise built-in `PermissionError` — the host translates it.
 8. Logging: use stdlib `logging.getLogger(__name__)` (no structlog, no prints).
 9. **Fan-out consumers take envelope lists** (this is the PRODUCER side of
