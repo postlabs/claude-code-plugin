@@ -48,14 +48,24 @@ target.
 
 ## 1. Clarify
 
-Ask ONE clarifying question ONLY when the request is vague or has a real fork
-(scope, output shape, trigger); otherwise proceed straight to discovery.
+Ask ONE clarifying question ONLY when the request is too vague to even map
+onto capabilities — a **what-is-it** ambiguity that blocks discovery itself
+(no namable source → trigger → output, no buildable domain, e.g. "make me an
+automation"). In that case the single question IS the what-is-it question (what
+are we automating, and which source → trigger → output), NOT a
+scope/output/trigger sub-fork that presupposes a domain you don't have yet.
+Otherwise proceed straight to discovery — scope, output shape, trigger, the
+target channel, and possessive phrasing like "my repo" are NOT step-1
+questions; they become Build Spec card fields ([assumed]/[input]) in step 4.
 
-One fork worth catching by name — possessive collections ("보유한/내/저장된
-X들", "my saved X"): these fork between (a) built-in defaults and (b) a
-user-owned, extensible collection. If (b) is plausible, the design needs a
-data-driven store (save_X / list_X / run_X primitives), not a hardcoded enum;
-ask which.
+One fork worth catching by name — possessive collections ("my saved X", "the
+X I keep"): these fork between (a) built-in defaults and (b) a user-owned,
+extensible collection. If (b) is plausible, the design needs a data-driven
+store (save_X / list_X / run_X primitives), not a hardcoded enum — but carry
+that fork into the card as a field, don't stop to ask here. A possessive
+collection that lives on an EXTERNAL site ("my shopping-site wishlist") is no
+buildable store at all — it's a reach/acquisition field, exempt from the
+built-in-vs-store fork entirely.
 
 ## 2. Discover
 
@@ -77,6 +87,39 @@ Otherwise it's a new build. Map the request onto what already exists:
   Any step assuming an external capability you cannot inspect must be flagged
   as an explicit warning in the report — never wire against a remembered
   schema silently.
+
+**Discovery output now fills the Build Spec card.** Step 2's mechanics are
+unchanged — the capability map, the tier, and the external services it touches
+are the same — but its OUTPUT is no longer free prose: it populates the
+numbered fields of the step-4 Build Spec card (① acquisition, ② auth, …
+⑦ references), so step 4 renders from structured discovery results, not a fresh
+guess. In `tier: standalone`, a field discovery could not verify against a live
+schema is tagged `[assumed — UNVERIFIED]` — it still ships (no extra
+round-trip); step 7 enumerates exactly those.
+
+**Gate A — the acquisition fork, resolved BEFORE the card.** When a reach gap's
+acquisition approach (official API vs internal-API capture vs browser session)
+has **no dominant winner** AND the choice **rebinds auth / reference / scope**,
+resolve it in its OWN `AskUserQuestion` before rendering the card — a rebinding
+fork must NEVER be folded into the card's [assumed] fallback batch. A dominant
+winner — only one approach actually survives — skips Gate A entirely and renders
+into card ① as [assumed]. When `tier: standalone`, the internal-API-capture
+choice is dropped (capture is connected-only); if that leaves browser-session as
+the sole survivor it IS the dominant winner — render it into card ① as
+[assumed — UNVERIFIED], do NOT fire a degenerate one-option Gate A. Two or more
+independently-rebinding reach forks (e.g. a scrape approach AND a separate data
+source) are resolved in ONE combined `AskUserQuestion`, one question per fork —
+still a single round-trip, still never the [assumed] batch. Mind the in-scope
+boundary: "browser session" means reading a single KNOWN surface (the
+page-scripting row); if acquisition needs multi-step navigation / login /
+clicking, that is **browser UI driving — out of scope** → hand off to
+action-creator, never quietly build it as an acquisition leg.
+
+**Auth-category landmine.** `auth.category: local` is the no-auth / pure-compute
+pattern ONLY (connect.py no-op, always authenticated — kit-authoring rule 3.4).
+A third-party credential — a GitHub PAT, a Slack token — is NOT
+`category: local`; never tag a card ② Auth that collects a third-party token as
+local.
 
 ## 3. Route the gaps
 
@@ -119,30 +162,82 @@ OVER data the dough already holds; reach goes OUT to get it or compute it.
 
 When one request decomposes into reach + compute + rendering, that is SEVERAL
 kits, not one — see the kit-authoring skill's "Cut kits by capability axis"
-rule before writing any kit.yaml.
+rule before writing any kit.yaml. A compute leg that depends on an EXTERNAL
+value (an FX rate, a live price) hides its own reach: fetching that value is a
+separate acquisition with its own kit and its own card ① line — never fold it
+into the compute step as if it were reasoning over data the dough already
+holds.
 
 A reach gap rarely has one obvious source — "fetch KOSPI data" could be an
-official API, a free library, or a scrape. Don't silently pick one, and don't
+official API, a free library, or a scrape. Don't silently pick blind, and don't
 bare-ask "which source?" (the user usually can't choose unaided): scout the
-realistic options (WebSearch / WebFetch their current docs), then offer 2-3
-compared on what they actually weigh — free vs keyed, official vs scraped
-(reliability/ToS), realtime vs delayed — with a recommendation, and confirm
-before building. Author against the docs you just fetched, not a half-remembered
-API — the step-6 unit-run is what proves the endpoint real.
+realistic options (WebSearch / WebFetch their current docs), weighing what they
+actually trade — free vs keyed, official vs scraped (reliability/ToS), realtime
+vs delayed. **Terminus:** if the scout yields a **dominant winner** that does
+NOT rebind auth/reference/scope, render it straight into card field ① as
+[assumed] — no question, no phantom alternatives. If there is **no dominant
+winner AND the fork rebinds auth/reference/scope**, fire **Gate A** (the single
+dedicated acquisition question from step 2) before the card; any remaining minor
+choices ride into the card as [assumed]/[input]. Author against the docs you
+just fetched, not a half-remembered API — the step-6 unit-run is what proves
+the endpoint real.
 
-## 4. Propose, then confirm
+## 4. Propose the card, then react
 
-Present the plan in plain language — what the user gets and which external
-services it touches. Handle each choice the request left open by the cost of
-guessing wrong:
-- a harmless default they might still want changed → pick it and SAY so
-  ("3-line summaries, fetched in-browser — say to change either");
-- a knob they'd plausibly retune run-to-run → make it a dough input with that
-  default, changed per-run not per-rebuild;
-- a wrong guess that forces a rebuild (one-shot vs a saved store, a send/write
-  side-effect) → ask before authoring.
-Wait for the user's go. While building, don't narrate internal ids, file names,
-or schema fields.
+Don't ask a batch of questions and don't narrate a prose plan. Render ONE
+filled-in **Build Spec card** — every decision already made, each line TAGGED
+so the user reads it in seconds and reacts by editing only the wrong lines. The
+card IS the confirmation: a bare "go" ships it as shown. (Worked example — the
+GitHub-issue → Slack happy path; tags are computed per field, not fixed.)
+
+```
+Build Spec — GitHub issue → Slack summary
+① Acquisition  GitHub REST API (official, dominant winner)   [assumed]
+② Auth         GitHub PAT — third-party token, NOT local     [assumed]
+③ Trigger      issue assigned to me → run                    [assumed]
+④ Summary      3-line summary, per issue                     [assumed]
+⑤ Destination  Slack #<channel>                              [input]
+⑥ Scope        repo <owner/name>                             [assumed]
+⑦ References   none needed (official API)                    [assumed]
+```
+
+**The tags ARE the cost-of-guessing triad, made structural:**
+- a harmless default they might still want changed → **[assumed]** (the old
+  "pick it and SAY so" — e.g. "3-line summary, in-browser fetch");
+- a knob they'd plausibly retune run-to-run → **[input]** (a dough input
+  carrying that default, changed per-run not per-rebuild);
+- a rebuild-forcing unknown with NO safe default → **[need you]**, applied
+  STRICTLY: only when the field genuinely blocks authoring (a page URL/HAR the
+  build cannot proceed without). An explicitly-requested side-effect is NOT a
+  [need you] — "send to Slack" makes the channel an ⑤ [input] target, not a
+  question.
+
+**Editing a parent field REGENERATES the card — recompute, not patch.** When
+the user edits a field others depend on, rebuild the whole card from inputs so
+stale lines are structurally impossible; a line that no longer applies is
+REMOVED, never crossed out. Acquisition is the parent that rebinds the most:
+e.g. on the GitHub-read side, "① browser" recomputes that side to ② Auth =
+Toast-browser-session (the PAT line DISAPPEARS, not struck through) and ⑦
+References to the page to read. If that surface is inferable (a known URL,
+logged in via the Toast session), keep it [assumed — UNVERIFIED]; reserve
+[need you] BLOCKING for a page/HAR that genuinely cannot be inferred without the
+user pasting it. Only the edited side recomputes — the untouched Slack side
+stays put. A no-dominant-winner rebinding acquisition fork is resolved at Gate A
+(step 2) BEFORE the card, never inside this fallback batch.
+
+**One line per leg when the build is SEVERAL kits.** When step 3's SEVERAL-kits
+rule fires (multiple distinct new acquisitions — e.g. a scrape source + an
+FX-rate source + a Notion write), ① Acquisition and ② Auth are NOT single rows:
+every distinct new acquisition gets its own ① line and every distinct new
+third-party credential its own ② line (①a/①b…, ②a/②b…, or one card per kit),
+each tagged. A guessed secondary source that never gets a line is a hidden
+decision "go" cannot veto — exactly what the card exists to prevent. An existing
+connected-vendor flour whose auth Toast already manages (e.g. postlab.slack)
+needs NO ② line; say so, so a missing auth line reads as "pre-managed", not
+"forgotten".
+
+A card with zero [need you] lines and a "go" ships in exactly one round-trip.
+While building, don't narrate internal ids, file names, or schema fields.
 
 ## 5. Author (in the workspace)
 
@@ -193,9 +288,24 @@ stamp. This is the build-step level — NOT engine-verified yet.
 ## 7. Report + hand off to /test
 
 Tell the user, in their terms: what the automation does, what inputs it takes,
-and WHERE the sources live (`./<slug>/` — their owned, editable copy). List
-any external-capability warnings from discovery. Then state the next step
-plainly: the artifacts are authored and statically/unit-checked but have not
-run on the real engine yet — run **`/toast-creator:test`** (Toast must be
-running) to register them and bake-verify, then **`/toast-creator:publish`**
-to deploy. Name the automation's slug.
+and WHERE the sources live (`./<slug>/` — their owned, editable copy). Surface
+the card's [assumed] (and standalone [assumed — UNVERIFIED]) fields so the user
+can still veto a guess — and when the build is several kits, do this for EVERY
+leg: each acquisition and each third-party auth, not only the fields that fit a
+single row. Name the auth (e.g. "GitHub PAT — a third-party token, NOT
+auth.category:local") and the chosen scope (e.g. the repo). `category: local`
+is the no-auth / pure-compute pattern only; never report a third-party-token
+field as local.
+
+**Standalone unverified-fields rule.** In standalone tier a card field the
+peeled-down build could not verify against a live schema is tagged
+**[assumed — UNVERIFIED]** during discovery (no extra round-trip — it ships,
+flagged). Step 7 enumerates exactly those tagged fields as the
+unverified-warning list, alongside the external-capability warnings from
+discovery. Round-trips do not increase versus the connected path.
+
+Then state the next step plainly: the artifacts are authored and
+statically/unit-checked but have not run on the real engine yet — run
+**`/toast-creator:test`** (Toast must be running) to register them and
+bake-verify, then **`/toast-creator:publish`** to deploy. Name the
+automation's slug.
