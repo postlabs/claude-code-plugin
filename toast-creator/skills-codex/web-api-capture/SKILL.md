@@ -80,6 +80,34 @@ When the emitted dough's re-fetch fails, walk these — cheapest first:
    depends on the site's bundle being parseable; `performance` entries are often cleared,
    and timeline-mount/scroll triggers are flaky). Prefer (a).
 
+## Runtime auth failure — emit a SELF-DESCRIBING 401
+
+Playbook #1 is the BUILD-time 401 (you forgot a header). Once the headers are right, a
+401/403 at BAKE time means something else: the user's session expired — they logged out
+of the site in the browser. The session IS the auth (point 2), so there is no token to
+refresh and **no kit to "connect"** (an internal-API kit is `auth: none`/`local`) —
+`connect_offer.park` would point at a dead connect flow, so do NOT use it here.
+
+Instead make the emitted eval_js **self-describing on auth failure** so the consumer
+(agent/composition) says the right thing instead of blind-retrying. On a non-ok response,
+branch 401/403 out:
+
+```js
+if (!resp.ok) {
+  if (resp.status === 401 || resp.status === 403)
+    return JSON.stringify({ needs_login: true, site: "<domain>", http: resp.status,
+                            hint: "Log into <domain> in this browser, then retry" });
+  return JSON.stringify({ http: resp.status, error: (text || "").slice(0, 300) });
+}
+```
+
+Then ground the agent in the kit's box `about` / tool docstring: "a `needs_login` / http
+401 result means the browser isn't logged into <site> — tell the user to log in; do not
+retry." This is **reactive by design** (after the failed call) and is the canonical
+in-system pattern for browser-session auth. A pre-emptive session probe is a separate,
+larger engine-layer job (a shared domain-session gate) — NOT something to bolt into a
+per-kit check(); don't.
+
 ## eval_js safety (you can take the backend down)
 
 The generated eval_js runs in the real browser. **Cap fetch concurrency** — sequential,

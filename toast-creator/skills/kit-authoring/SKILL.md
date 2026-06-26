@@ -144,16 +144,25 @@ setup_url: https://provider.example.com/developer   # where the user mints the k
 fields:
   - name: client_id        # the value is stored under this key
     label: Client ID       # form label shown in the dialog
-    type: secret           # secret → masked input; string → plain
+    type: string           # PUBLIC identifier → shown in Settings so the user sees WHICH key is stored
     required: true
     placeholder: "abcd1234"
     description: "From the provider's developer portal."
   - name: client_secret
     label: Client Secret
-    type: secret
+    type: secret           # SECRET → masked input + a one-way fingerprint in Settings; the value never leaves the backend
     required: true
 connect: my_kit.connect
 ```
+
+**Field `type` is a SECURITY declaration, not cosmetic — get it right per field.**
+A `secret` field is masked in the form, stored encrypted, and surfaced in Settings
+only as an 8-char one-way fingerprint (`•••• 699727b3`) — its value NEVER leaves
+the backend. A `string` field's value IS shown so the user can tell WHICH key is
+connected. So: mark anything sensitive (secret / token / password / private key)
+`secret`; only genuinely PUBLIC identifiers (`client_id`, account number,
+workspace URL) are `string`. **Default to `secret` when unsure** — a secret
+mislabeled `string` leaks its full value into the panel.
 
 ```python
 """<Kit> connect — BYOK credentials: store + validate a user-supplied secret."""
@@ -258,11 +267,11 @@ connect: my_kit.connect
 fields:                                    # the BYOK app credentials the user pastes once
   - name: client_id
     label: Client ID
-    type: secret
+    type: string           # PUBLIC identifier → shown in Settings (which key is connected)
     required: true
   - name: client_secret
     label: Client Secret
-    type: secret
+    type: secret           # SECRET → masked + fingerprint only; value never leaves the backend
     required: true
 ```
 
