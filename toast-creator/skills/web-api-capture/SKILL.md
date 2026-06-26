@@ -32,6 +32,16 @@ done." Test the cheap hypothesis before declaring a wall.
 2. `browse` the target page(s) — the capture records the page's XHR/Fetch JSON. The
    page may render slowly or stall on "Loading"; **the network calls fire anyway**, so
    the capture still gets the data even if the a11y snapshot shows only a spinner.
+   - **A passive `browse` only sees PAGE-LOAD XHR — interaction-triggered endpoints are
+     invisible to it.** Pagination / "next" / load-more (fire on click), autocomplete /
+     suggest (on keystroke), lazy sections (on scroll) call their endpoint ONLY when the
+     user acts. A load-only capture looks empty/incomplete and you may wrongly conclude
+     "no API exists / needs UI-driving." If the data you want is a later page, a
+     suggestion list, or a load-more result, DRIVE THE ACTION: bake a probe whose eval_js
+     clicks the control / types into the box / scrolls, waits, then reads
+     `performance.getEntriesByType('resource').filter(e=>/fetch|xmlhttprequest/.test(e.initiatorType))`
+     for the NEW request URL + its params (e.g. `?pageIndex=&size=`). Don't declare it
+     uncapturable before trying the interaction.
 3. `promote_api(capture_id, answer, query_param?, shape_js?, name?)` → matches the
    `answer` tokens against captured bodies to pick the data API deterministically, and
    emits a `user.webapi_*` dough that re-fetches it in-page.

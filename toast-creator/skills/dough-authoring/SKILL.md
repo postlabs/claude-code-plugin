@@ -32,6 +32,12 @@ Author in the SESSION CWD, never in a Toast profile directory:
 and versionable by the user. Id is exactly `user.<slug>`, two segments, no
 nesting.
 
+**`box.yaml` `name:` is the user-facing label in the Toast app.** Name it for
+what the user gets ("Coupang reviews", "Daily BTC report"), not the mechanism —
+no jargon (`codegen`/`raw`/`wrapper`/`eval_js`/`API`), no slug-like strings, no
+trailing `(...)`. Short, reads like a product. (Kit `display_name` follows the
+same rule — see kit-authoring.)
+
 Publishing goes through the API, not the filesystem:
 
 ```
