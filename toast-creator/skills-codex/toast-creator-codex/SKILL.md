@@ -90,7 +90,13 @@ python ${CODEX_PLUGIN_ROOT}/scripts/dough_publish.py publish <dough_dir>
 6. Bake root doughs with realistic inputs using peel. On failure, recall the
    donut, read `error_code`, fix the workspace source, re-register, and re-bake.
    Do not hand recoverable bake failures back to the user.
-7. After green root bakes, stamp exercised artifacts in `provenance.yaml` as
+7. On a green bake, reconcile declared output shapes against the real value:
+   a `string` output whose value parses as JSON (object/list) is a defect —
+   parse it inside the dough (`basic.parse_json`) or fix the tool to return
+   structure, promote the declaration to the real `list`/`object` shape,
+   republish, re-bake. Static validation cannot catch this (the value IS a
+   string); this step is the only gate that sees the real value.
+8. After green root bakes, stamp exercised artifacts in `provenance.yaml` as
    `verified` with `verified_at` and the donut id. Never downgrade entries.
 
 ## Publish Step

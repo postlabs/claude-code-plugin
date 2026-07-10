@@ -96,7 +96,19 @@ Identify the ROOT doughs (those no other workspace dough calls). For each:
 
    For a LARGE donut, don't pull the whole thing through `recall` — read the
    persisted donut JSON from the profile and extract the keys you need.
-3. Side-effect courtesy: before baking a root that drives a browser or sends
+3. **Green is not done — reconcile declared shapes against the real value.**
+   Read the green donut's outputs next to the dough's `outputs:` declarations.
+   A `string` output whose value parses as JSON (an object/list) is a DEFECT
+   to repair here, exactly like a failed bake: parse it inside the dough
+   (`basic.parse_json`, or fix the tool to return structure), promote the
+   declaration to the real `list`/`object` shape, republish, re-bake.
+   `type: string` sails through static validation because it is technically
+   true — the value IS a string — which is precisely why this check lives in
+   `/test`: this is the only gate that sees the real value. Structure strictly
+   dominates its stringified form (an agent can still read it, while screens,
+   compositions, and auto-render work ONLY on structure), so no consumer is
+   better served by the string.
+4. Side-effect courtesy: before baking a root that drives a browser or sends
    anything outward, tell the user.
 
 **Canonical `error_code` reference** (other docs point here):
