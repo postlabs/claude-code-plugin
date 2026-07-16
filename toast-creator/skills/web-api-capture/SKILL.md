@@ -41,7 +41,9 @@ done." Test the cheap hypothesis before declaring a wall.
      clicks the control / types into the box / scrolls, waits, then reads
      `performance.getEntriesByType('resource').filter(e=>/fetch|xmlhttprequest/.test(e.initiatorType))`
      for the NEW request URL + its params (e.g. `?pageIndex=&size=`). Don't declare it
-     uncapturable before trying the interaction.
+     uncapturable before trying the interaction. (If the framework only fires this on a
+     Next.js-style client transition rather than a plain XHR, see the RSC section below
+     — the same "drive the action" principle, one framework-specific variant.)
 3. `promote_api(capture_id, answer, query_param?, shape_js?, name?)` → matches the
    `answer` tokens against captured bodies to pick the data API deterministically, and
    emits a `user.webapi_*` dough that re-fetches it in-page.
@@ -56,6 +58,40 @@ done." Test the cheap hypothesis before declaring a wall.
 4. **Bake the emitted dough and verify it returns real data** (this is the repair loop's
    first iteration — `ok:true` from promote_api only means the CAPTURE had the data, NOT
    that the re-fetch works).
+
+## Next.js RSC — when the "driven" endpoint isn't plain JSON
+
+The previous bullet's "drive the action" principle has a framework-specific wrinkle:
+on Next.js App Router sites the pagination/filter transition doesn't fire an XHR to a
+REST endpoint at all — it fires the framework's OWN client-side data fetch, whose
+response isn't plain JSON. Recognize the pattern: SSR HTML on first load (search/list
+pages especially), `_next/` asset paths, `__next_f` in the page source. Reproduce it
+without actually driving the click (a static fetch is simpler than replaying a UI
+action): read the next-page/filter link's own `href` off the DOM (the exact URL a
+click would navigate to — a page/sort/filter query param usually already sits there),
+then fetch that URL
+yourself in eval_js with header `RSC: '1'` (`accept: '*/*'`, `credentials: 'include'`).
+A real Next.js RSC endpoint answers `content-type: text/x-component`, status 200 — the
+same session's real data, not an error page. Drop any `_rsc=<token>` query param off
+that href before hardcoding it — it's usually NOT required (test without it first); a
+value that rotates per build is the same fragility class as playbook #5's GraphQL
+query ids, avoid depending on it when the bare header already works.
+
+Parsing the payload: it is NOT one JSON document. It is newline-separated chunks
+shaped `<hexId>:<value>` (Next.js's RSC "flight" wire format). In the eval_js:
+1. Split on `/^([0-9a-f]+):(.*)$/m` into a `{id: rawValue}` map.
+2. `JSON.parse` each chunk's value — most parse standalone even though they contain
+   `"$<id>"`-shaped cross-references to OTHER chunks as plain string values inside them.
+3. Recursively search (bounded depth, ~6) the chunks for the key you actually want
+   (`products`/`items`/`results`, whatever the page calls its list) — you rarely need
+   to resolve the `$<id>` cross-references to get the one array you're after.
+
+From the extracted array onward it's the ordinary flow: shape in eval_js, promote
+type via `basic.parse_json`, wire the productGrid/etc spread — no different from a
+plain REST capture. Prefer this path over DOM-text extraction whenever both exist for
+the same data — the RSC payload's fields are properly TYPED (real numbers/booleans),
+where DOM-scraped text needs per-field regex reconstruction (comma-formatted counts,
+currency-suffixed prices) that a REST/RSC source never needed in the first place.
 
 ## Auth-walled SPA playbook (the failure modes, in order of likelihood)
 

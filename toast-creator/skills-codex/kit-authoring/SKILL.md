@@ -60,6 +60,16 @@ to build along these axes:
 Small kits are fine: a 1-flour fetch kit is a correct library, not an
 under-built one.
 
+**Wrapping a site's internal endpoints (reach / in-page codegen kit)? Discover
+them by DRIVING INTERACTIONS, not just page load.** Page-load network capture
+(`performance.getEntriesByType('resource')`, a passive browse) only sees XHR that
+fires ON LOAD. Endpoints behind a user action — pagination / "next" / load-more
+(click), autocomplete (keystroke), lazy sections (scroll) — stay invisible, and
+you may wrongly conclude "no API exists / needs UI-driving." Before declaring an
+endpoint uncapturable, bake a probe whose eval_js clicks / types / scrolls, waits,
+then re-reads the resource entries for the new request URL + params (e.g.
+`?pageIndex=&size=`). (See the **web-api-capture** skill.)
+
 A **kit** is the only artifact that ships Python. It is a directory:
 
 ```
@@ -80,7 +90,7 @@ A **kit** is the only artifact that ships Python. It is a directory:
 id: my_kit                # single-segment, distinctive & original — not a reserved/provider name; the test step enforces it (killer #3)
 version: 0.1.0
 mojo_compat: ">=1.0"
-display_name: "My Kit"
+display_name: "My Kit"    # user-facing app label — see "display_name" rule below
 description: "One sentence on what the tools do."
 author: "Toast team"
 license: "MIT"
@@ -92,6 +102,15 @@ connect: my_kit.connect   # REQUIRED with category: local
 
 **Never write `provides:` in kit.yaml** — the loader derives the tool list by
 walking the flour directories. A `provides:` block is rejected.
+
+**`display_name` — the user-facing label shown in the Toast app.** Name it for
+the brand or capability the user recognizes ("Coupang", "Gmail", "Stock
+prices"), NOT how it is built. Ban implementation jargon and decoration:
+no `codegen`, `internal_api`, `wrapper`, `extractor`, `scraper`, `(beta)`,
+version numbers, or trailing `(...)` mechanics. The `id` may be technical
+(`coupang_internal_api`); the `display_name` must read like a product a person
+would pick from a list ("Coupang", not "Coupang Page Extractor (codegen)").
+Title Case, short. (Same rule for a dough's `box.yaml` `name:`.)
 
 **Manifest rule 3.4 (load-time killer — see top of skill):** any kit whose
 top-level id segment is not a reserved bundled vendor (the backend's
