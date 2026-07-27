@@ -70,10 +70,43 @@ author a kit.
 data lives behind a logged-in site (esp. one whose official API is paywalled or
 absent — X, internal dashboards), don't author an httpx kit that would need the
 user's cookies/tokens. Bracket a `browse` with `start_api_capture` →
-`promote_api`: it finds the page's own data API and caches a secret-free
-in-browser `fetch` (the browser attaches the origin's cookies). Emits a
-reusable `user.webapi_*` dough. Fall back to `promote_web_task` (DOM cache) when
-`promote_api` returns `ok:false` (server-rendered page, no JSON API).
+`promote_api`: it finds the page's own data API and caches an in-browser
+`fetch` that the browser attaches the origin's **cookies** to at run time.
+Emits a reusable `user.webapi_*` dough. Fall back to `promote_web_task` (DOM
+cache) when `promote_api` returns `ok:false` (server-rendered page, no JSON
+API).
+
+**Cookie auth only.** That "the browser supplies the auth" property covers
+cookies and nothing else. A site that authenticates with a credential HEADER
+(`authorization: Bearer …`, `x-csrf-token`) is a different case: those headers
+are withheld from the emitted dough rather than baked into it, so the cached
+call will simply fail. That is the honest outcome, not a bug to work around —
+a captured token expires and would take the cache down with it. When
+`promote_api` gives you a dough that bakes empty or 401s on a header-auth site,
+fall back to `promote_web_task`; do not hand-edit the token back in.
+
+## Never put a credential in a dough
+
+A dough YAML is stored in plaintext and is shareable — it travels whole through
+catalog publish. So a token, API key, session cookie or password must never
+appear in one as a literal, including inside an `eval_js` code string.
+
+Two legitimate ways to get one:
+
+- **From a kit credential.** The kit declares it (`auth.type: credentials` /
+  `api_key` / `bearer`) and its tool reads it from the per-profile store at bake
+  time — see the kit-authoring skill, "When the kit needs a user secret". The
+  dough never names the secret at all. This is the answer whenever a kit is
+  already in play.
+- **From the live page.** Inside an in-browser `eval_js`, read the value at run
+  time instead of freezing it — cookies ride along automatically with
+  `credentials: "include"`, and a value the page keeps in `document.cookie` is
+  read there (`const ct0 = document.cookie.match(...)`), not pasted in.
+
+A public constant that a site ships in its own JS bundle to every visitor (X's
+web `authorization` bearer is the canonical example) is not a secret and may be
+a literal. Judge by "would two users see different values?" — if yes, it is a
+credential; take it at run time.
 
 ## Engine ground truths (verified — the guide's prose drifts on these)
 
