@@ -80,16 +80,16 @@ A **kit** is the only artifact that ships Python. It is a directory:
 ├── types.py                   # Pydantic models for object/list outputs (model: refs)
 ├── <flour_name>/              # one flour directory per tool
 │   ├── dough.yaml             # action.tool: <kit_id>.<symbol> + inputs/outputs
-│   └── box.yaml               # display labels (REQUIRED, en complete; en+ko is the convention)
+│   └── box.yaml               # display labels (REQUIRED — en AND ko complete, gated at install)
 └── icon.svg                   # optional
 ```
 
 ## kit.yaml — minimal manifest
 
 ```yaml
-id: my_kit                # single-segment, distinctive & original — not a reserved/provider name; {{test}} enforces it (killer #3)
+path: my_kit              # single-segment, distinctive & original — not a reserved/provider name; {{test}} enforces it (killer #3)
+uid: my_kit.ki-<32 hex>   # REQUIRED — the kit's durable identity, minted ONCE (see below)
 version: 0.1.0
-mojo_compat: ">=1.0"
 display_name: "My Kit"    # user-facing app label — see "display_name" rule below
 description: "One sentence on what the tools do."
 author: "Toast team"
@@ -97,8 +97,25 @@ license: "MIT"
 auth:
   type: none
   category: local         # REQUIRED — see rule 3.4 below
-connect: my_kit.connect   # REQUIRED with category: local
+connect: connect          # REQUIRED with category: local — module name only, no kit prefix
 ```
+
+**`path` is the LOCATION, `uid` is the IDENTITY.** `path` is the folder, the
+import namespace, and what a flour's `action.tool:` resolves against — a rename
+changes it. `uid` never changes, and it is what a `requires:` reference points
+at. Both are required and `kit.yaml` is `extra="forbid"`, so a stale `id:` or
+`mojo_compat:` fails the parse outright.
+
+Mint the uid ONCE. The mojo checkout ships the stamper, which fills in every
+manifest that is still missing one and leaves the rest alone:
+
+```
+python <mojo>/src/backend/scripts/stamp_kit_uids.py
+```
+
+For a kit outside that tree, mint it directly with the same function the
+stamper calls — `mint(<path>, "kit")` from
+`app.doughs.definitions.identity`, run against the backend's interpreter.
 
 **Never write `provides:` in kit.yaml** — the loader derives the tool list by
 walking the flour directories. A `provides:` block is rejected.
@@ -171,7 +188,7 @@ fields:
     label: Client Secret
     type: secret           # SECRET → masked input + a one-way fingerprint in Settings; the value never leaves the backend
     required: true
-connect: my_kit.connect
+connect: connect
 ```
 
 **Field `type` is a SECURITY declaration, not cosmetic — get it right per field.**
@@ -282,7 +299,7 @@ auth:
     setup_url: https://provider.example.com/developers   # where the user registers an app
     authorize_url: https://provider.example.com/oauth/authorize
     token_url: https://provider.example.com/oauth/token
-connect: my_kit.connect
+connect: connect
 fields:                                    # the BYOK app credentials the user pastes once
   - name: client_id
     label: Client ID
@@ -450,7 +467,8 @@ the loader topo-sorts), `routes:` (kit-owned HTTP routes — rare).
 ## Tool flour — dough.yaml shape
 
 ```yaml
-id: my_kit.fetch_rates          # <kit_id>.<flour_dir_name>
+uid: my_kit.do-<32 hex>         # minted once — mint('<kit path head>', 'dough')
+path: my_kit.fetch_rates        # <kit_path>.<flour_dir_name>
 version: 0.1.0
 source: kit
 verb: fetch                     # MUST be a real capability verb — see below
@@ -491,7 +509,16 @@ return:
   `list` without `model:`.
 - No `description:` on inputs/outputs (rejected, R12) — all display text goes
   in `box.yaml`: per locale `name`/`about` plus `{name, description}` for
-  EVERY input AND output key. `en` complete is validator-enforced; ship ko too.
+  EVERY input AND output key. **BOTH `en` and `ko` are required and gated:**
+  `offline_validate.py` fails the build and `kit_lifecycle.py install` refuses
+  to install (nothing is copied) until every flour's box is complete. Unlike a
+  user dough — where the API still drops non-en locales — a kit flour's `ko`
+  is live the moment it lands, because install copies the files and the loader
+  reads them. `description` is not decoration: it is the UI tooltip AND the
+  grounding hint injected into the agent prompt at bake time.
+  (The engine's own check is weaker — `en` only, and skipped entirely when
+  box.yaml is absent. Author to the rule above, not to what the engine alone
+  would let through.)
 
 ## Where the kit lives + the build-step checks (no backend)
 
@@ -504,7 +531,7 @@ yourself.
 This skill is the BUILD step — author + check WITHOUT a backend. Two rungs:
 
 ```
-# 1. static-validate each flour's YAML (verb, model: refs, box) — vendored engine
+# 1. static-validate each flour's YAML (verb, model: refs, box en+ko) — vendored engine
 python ${PLUGIN_ROOT}/scripts/offline_validate.py <slug_dir>
 
 # 2. unit-run each tool directly (no engine, no install)

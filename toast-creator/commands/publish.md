@@ -45,6 +45,12 @@ this step is a confirmation, not a re-install:
   confirms it is live. Missing → `dough_publish.py publish <dough_dir>` (it is
   already verified; this is just (re)registration, no design change).
 
+Both paths re-apply the **box gate** (`box.yaml` present, `en` and `ko`
+complete) and refuse to send an unlabelled artifact. A `box_issue` here means
+the workspace was edited after `/test`: fix the labels in the workspace source
+and re-run this step. Do not reach for `--draft` to get past it — a draft is
+not a deployment.
+
 ## 3. Report + hand over the controls
 
 Tell the user, in their terms:

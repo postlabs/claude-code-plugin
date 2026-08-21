@@ -19,6 +19,13 @@ Per dough:
      never hard-fail on refs we cannot know. ShimStore.get_dough returns None,
      which safely disables the engine's drill-down checks (they need real
      publisher doughs).
+  4. _common.box_issues(dough, box) — the box.yaml gate, STRICTER than the
+     engine: the sidecar must EXIST and both `en` and `ko` must be complete.
+     It supersedes the engine's own box rules (which cover en only, and are
+     skipped entirely when box.yaml is absent), so engine-emitted `box_*`
+     codes are dropped in favour of these. Same gate runs at registration in
+     dough_publish / kit_lifecycle install — a workspace that passes here
+     cannot be bounced there.
 
 Output: one JSON object {engine_core, workspace, reports, provenance, verdict}
 with a report per dough {id, dir, issues:[{code,message,hint}], warnings,
@@ -44,7 +51,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _common import PLUGIN_ROOT, utf8_io
+from _common import PLUGIN_ROOT, box_issues, utf8_io
 
 utf8_io()
 
@@ -139,8 +146,12 @@ def collect_known_ids(dough_dirs: list[Path]) -> set[str]:
             data = load_yaml(d / "dough.yaml")
         except (YAMLError, OSError):
             continue
-        if isinstance(data, dict) and isinstance(data.get("id"), str):
-            known.add(data["id"])
+        if not isinstance(data, dict):
+            continue
+        # `path:` is the id now; `id:` is the retired spelling.
+        ident = data.get("path") or data.get("id")
+        if isinstance(ident, str):
+            known.add(ident)
     return known
 
 
@@ -185,16 +196,19 @@ def validate_dough_dir(dough_dir: Path, known_ids: set[str]) -> dict:
                 })
 
         box = None
+        box_raw = None
+        box_unparseable = False
         box_path = dough_dir / "box.yaml"
         if box_path.is_file():
             try:
-                box_raw = load_yaml(box_path)
-                if isinstance(box_raw, dict):
-                    box = Box.from_yaml_dict(box_raw)
-                else:
+                raw = load_yaml(box_path)
+                if not isinstance(raw, dict):
                     raise ValueError(
-                        f"box.yaml parsed as {type(box_raw).__name__}, expected a mapping")
+                        f"box.yaml parsed as {type(raw).__name__}, expected a mapping")
+                box_raw = raw
+                box = Box.from_yaml_dict(raw)
             except (YAMLError, PydanticValidationError, ValueError) as e:
+                box_unparseable = True
                 issues.append({
                     "code": "box_parse_error",
                     "message": f"box.yaml failed to parse: {e}",
@@ -203,11 +217,25 @@ def validate_dough_dir(dough_dir: Path, known_ids: set[str]) -> dict:
 
         shim = ShimStore(known_ids)
         for issue in validate_yaml(dict(data), store=shim, box=box):
+            # The engine's box rules cover `en` per-key only, and not at all
+            # when box is None — box_issues() below supersedes them with the
+            # same codes across every REQUIRED_LOCALES. Dropping them here is
+            # what keeps a single finding from being reported twice.
+            if str(issue.code).startswith("box_"):
+                continue
             issues.append({
                 "code": issue.code,
                 "message": issue.message,
                 "hint": issue.hint,
             })
+        # Skipped when box.yaml exists but is unparseable: the parse error is
+        # the one actionable finding, not the per-key cascade behind it.
+        if not box_unparseable:
+            # A flour lives under the kit tree and ships its locales whole;
+            # anything else goes through the save API's name-only rule.
+            is_kit_flour = "kits" in dough_dir.parts
+            issues.extend(box_issues(data, box_raw,
+                                     non_en_name_only=not is_kit_flour))
         warnings.extend(
             f"external ref '{ref}' unverifiable offline — checked at publish"
             for ref in shim.external_refs)

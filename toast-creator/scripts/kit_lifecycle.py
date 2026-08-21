@@ -7,8 +7,11 @@ Stdlib only. Talks to the Toast backend's /kits lifecycle API:
     python kit_lifecycle.py uninstall <kit_id>         # unload + remove (non-bundled only)
     python kit_lifecycle.py list                       # installed kits + status
 
-install copies <kit_source_dir> into the ACTIVE profile's doughs tree and binds
-its tools immediately, then runs a STRONG verify — a half-loaded kit can return
+install first applies the BOX GATE (_common.box_issues over every flour dir:
+box.yaml must exist, `en` and `ko` both complete) and refuses to install
+otherwise — nothing is copied. It then copies <kit_source_dir> into the ACTIVE
+profile's doughs tree and binds its tools immediately, then runs a STRONG
+verify — a half-loaded kit can return
 {"verify":"ok"} on the old "has at least one tool" check while being unusable.
 verify_install() requires ALL of (verified 2026-06-24):
   1. the kit is registered in GET /kits with >= 1 tool whose schema is
@@ -36,6 +39,7 @@ import os
 import sys
 
 from _common import (
+    box_issues,
     call,
     list_profiles,
     profiles_root,
@@ -45,6 +49,52 @@ from _common import (
 )
 
 utf8_io()
+
+
+def kit_box_issues(kit_dir: str) -> tuple[list[dict], str | None]:
+    """The box gate over every flour dir under *kit_dir*.
+
+    Kit flours ship as FILES (install copies the tree into the active
+    profile), so unlike a user dough their ``ko`` block is live the moment it
+    lands — the loader reads it. Returns ``(issues, skipped_reason)``;
+    *skipped_reason* is non-None only when this interpreter cannot parse YAML,
+    and is reported loudly rather than passing silently.
+    """
+    try:
+        from ruamel.yaml import YAML
+        from ruamel.yaml.error import YAMLError
+    except ImportError:
+        return [], ("ruamel.yaml is not installed in this interpreter — run "
+                    "kit_lifecycle.py with the embedded Toast Python to apply "
+                    "the box gate, or check the kit with offline_validate.py")
+
+    yaml = YAML()
+
+    def load(path: str):
+        with open(path, encoding="utf-8") as f:
+            return yaml.load(f)
+
+    issues: list[dict] = []
+    for cur, dirnames, filenames in os.walk(kit_dir):
+        dirnames[:] = sorted(
+            d for d in dirnames if not d.startswith(".") and d != "__pycache__")
+        if "dough.yaml" not in filenames:
+            continue
+        flour = os.path.relpath(cur, kit_dir).replace(os.sep, "/")
+        try:
+            dough = load(os.path.join(cur, "dough.yaml")) or {}
+            box_path = os.path.join(cur, "box.yaml")
+            box = (load(box_path) or {}) if os.path.isfile(box_path) else None
+        except (YAMLError, OSError) as e:
+            issues.append({"flour": flour, "code": "flour_unreadable",
+                           "message": f"could not read {flour}: {e}",
+                           "hint": "fix the YAML in the kit source"})
+            continue
+        if not isinstance(dough, dict):
+            continue
+        for issue in box_issues(dough, box):
+            issues.append({"flour": flour, **issue})
+    return issues, None
 
 
 def _kits_index() -> list | None:
@@ -169,6 +219,24 @@ def main() -> int:
             print(__doc__)
             return 2
         kit_dir = os.path.abspath(sys.argv[2])
+
+        # BOX GATE — before anything is copied into the profile. A kit flour
+        # with an incomplete box.yaml renders unlabelled in the app, and its
+        # per-key descriptions are the agent grounding hints at bake time.
+        problems, skipped = kit_box_issues(kit_dir)
+        if skipped:
+            print(json.dumps({"box_gate": "SKIPPED", "reason": skipped}))
+        if problems:
+            for p in problems:
+                print(json.dumps({"box_issue": p}, ensure_ascii=False))
+            return report(0, {
+                "error": f"box.yaml is incomplete in {kit_dir} — not installed",
+                "issues": len(problems),
+                "hint": "fix the box_issue lines above in the KIT SOURCE and "
+                        "re-run. en and ko must both carry name + about and "
+                        "{name, description} for every input and output.",
+            })
+
         status, data = call("POST", "/kits/install", {"path": kit_dir})
         rc = report(status, data)
         if rc != 0:

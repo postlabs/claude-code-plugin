@@ -255,10 +255,19 @@ This is what `/create` guarantees. Run every rung that applies:
 
 1. **Static validate** —
    `python ${CLAUDE_PLUGIN_ROOT}/scripts/offline_validate.py <slug_dir>`:
-   parse + composition rules + box checks on the vendored engine validator.
-   A dough that fails to parse is reported as ERRORS (never "0 issues"); refs
-   to flours outside the workspace come back as WARNINGS, not errors. Fix
+   parse + composition rules on the vendored engine validator, plus the BOX
+   GATE. A dough that fails to parse is reported as ERRORS (never "0 issues");
+   refs to flours outside the workspace come back as WARNINGS, not errors. Fix
    every error in the workspace source; carry every warning into the report.
+
+   **The box gate** — every dough AND every kit flour needs a `box.yaml` whose
+   `en` and `ko` blocks are BOTH complete: locale `name` + `about`, plus
+   `{name, description}` for every declared input and output. `box_*` issues
+   are hard errors here, and the SAME check re-fires at registration
+   (`dough_publish.py` and `kit_lifecycle.py install` both refuse to send
+   anything), so `/test` and `/publish` cannot ship past it. Never defer one:
+   the API writes labels at CREATION ONLY, so a dough published unlabelled
+   stays unlabelled for good.
 2. **Unit-run tools** —
    `python ${CLAUDE_PLUGIN_ROOT}/scripts/tool_runner.py <kit_dir> <symbol> --inputs <json>`
    for each authored kit tool with realistic inputs; check the return dict

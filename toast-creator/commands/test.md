@@ -56,6 +56,18 @@ testing.
   changed. (Static checks in `/create` should have caught these; a 422 here
   means the workspace drifted or skipped `/create`'s build bar.)
 
+**BOX GATE — registration refuses an unlabelled artifact.** Both commands
+above apply it before any HTTP call: every dough and kit flour needs a
+`box.yaml` with `en` AND `ko` complete (locale `name` + `about`, plus
+`{name, description}` for every input and output). A failure prints
+`box_issue` lines and nothing is sent or copied. Fix it in the WORKSPACE
+source — writing the missing labels is a test repair, exactly like a typo'd
+ref, not a design change to bounce back to the user. Never work around it by
+adding `--draft` (that flag exists to park a half-wired state, and a draft is
+not deployable). It is a hard gate because the API persists `en.name`/
+`en.about` at CREATION ONLY: a dough that reaches Toast unlabelled stays that
+way permanently, delete-and-recreate being the only fix.
+
 **Install/bind failures (half-load, many faces):**
 
 | Symptom | Meaning |

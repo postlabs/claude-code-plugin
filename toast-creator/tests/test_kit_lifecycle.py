@@ -119,3 +119,60 @@ def test_verify_install_fails_when_not_on_active_profile(monkeypatch):
     assert ok is False
     assert checks["persisted_on_active"] is False
     assert checks["persisted_profiles"] == ["other"]
+
+
+# --- the box gate over kit flours (applied BEFORE anything is copied) ------
+
+
+def _make_kit(tmp_path, flours):
+    """A kit dir with one dir per flour: {name: (dough_yaml, box_yaml|None)}."""
+    kit = tmp_path / "mykit"
+    kit.mkdir()
+    (kit / "kit.yaml").write_text("id: mykit\n", encoding="utf-8")
+    (kit / "tools.py").write_text("def t():\n    return {}\n", encoding="utf-8")
+    for name, (dough, box) in flours.items():
+        d = kit / name
+        d.mkdir()
+        (d / "dough.yaml").write_text(dough, encoding="utf-8")
+        if box is not None:
+            (d / "box.yaml").write_text(box, encoding="utf-8")
+    return kit
+
+
+_FLOUR = "id: mykit.t\naction:\n  tool: mykit.t\ninputs:\n  q:\n    type: string\n"
+_FULL_BOX = (
+    "en:\n  name: Search\n  about: searches\n"
+    "  inputs:\n    q:\n      name: Query\n      description: what to search for\n"
+    "ko:\n  name: 검색\n  about: 검색한다\n"
+    "  inputs:\n    q:\n      name: 검색어\n      description: 무엇을 검색할지\n"
+)
+
+
+def test_kit_box_gate_passes_a_complete_kit(tmp_path):
+    kit = _make_kit(tmp_path, {"t": (_FLOUR, _FULL_BOX)})
+    issues, skipped = kit_lifecycle.kit_box_issues(str(kit))
+    assert skipped is None
+    assert issues == []
+
+
+def test_kit_box_gate_flags_the_offending_flour_by_name(tmp_path):
+    kit = _make_kit(tmp_path, {"good": (_FLOUR, _FULL_BOX), "bad": (_FLOUR, None)})
+    issues, _ = kit_lifecycle.kit_box_issues(str(kit))
+    assert [(i["flour"], i["code"]) for i in issues] == [("bad", "box_missing")]
+
+
+def test_kit_box_gate_requires_ko_in_kit_flours(tmp_path):
+    en_only = ("en:\n  name: Search\n  about: searches\n"
+               "  inputs:\n    q:\n      name: Query\n      description: what\n")
+    kit = _make_kit(tmp_path, {"t": (_FLOUR, en_only)})
+    issues, _ = kit_lifecycle.kit_box_issues(str(kit))
+    assert [i["code"] for i in issues] == ["box_locale_missing"]
+    assert "`ko:`" in issues[0]["message"]
+
+
+def test_kit_box_gate_ignores_non_flour_dirs(tmp_path):
+    kit = _make_kit(tmp_path, {"t": (_FLOUR, _FULL_BOX)})
+    (kit / "__pycache__").mkdir()
+    (kit / "__pycache__" / "dough.yaml").write_text("id: junk\n", encoding="utf-8")
+    issues, _ = kit_lifecycle.kit_box_issues(str(kit))
+    assert issues == []

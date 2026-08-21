@@ -1,9 +1,14 @@
 """Tests for dough_publish.publish() — payload shaping + existence-probe branch.
 
-publish() reads dough.yaml/box.yaml, strips server-managed keys, derives the id,
-lifts en.name/en.about to top-level extras, and chooses POST (new) vs PUT
-(existing) from a GET probe — refusing to act when the probe is inconclusive
-(5xx). The HTTP seam is _common.call, mocked here so no backend is needed.
+publish() reads dough.yaml/box.yaml, applies the BOX GATE, strips server-managed
+keys, derives the id, lifts en.name/en.about to top-level extras, and chooses
+POST (new) vs PUT (existing) from a GET probe — refusing to act when the probe
+is inconclusive (5xx). The HTTP seam is _common.call, mocked here so no backend
+is needed.
+
+Every dough here carries a COMPLETE box (see _box) because the gate rejects
+anything less before the first HTTP call; the gate's own rejections are tested
+at the bottom.
 """
 from __future__ import annotations
 
@@ -28,7 +33,29 @@ class CallRecorder:
         return next((c for c in self.calls if c[0] in ("POST", "PUT")), None)
 
 
+def _box(inputs=(), outputs=()):
+    """A gate-passing box.yaml for a USER DOUGH.
+
+    `en` carries everything; `ko` carries a name and nothing else — the save
+    API rejects any other slot on a non-`en` locale, so a fixture that filled
+    them in would be asserting a publish that cannot happen. (A KIT FLOUR is
+    the other side of that split and does ship every locale in full — see
+    test_kit_lifecycle.)
+    """
+    lines = ["en:", "  name: Greeter", "  about: says hi"]
+    for section, keys in (("inputs", inputs), ("outputs", outputs)):
+        if not keys:
+            continue
+        lines.append(f"  {section}:")
+        for key in keys:
+            lines += [f"    {key}:", f"      name: {key}",
+                      f"      description: the {key} value"]
+    lines += ["ko:", "  name: 인사"]
+    return "\n".join(lines) + "\n"
+
+
 def _make_dough(tmp_path, name, dough_yaml, box_yaml=None):
+    """*box_yaml* None means NO box.yaml on disk (what the gate rejects)."""
     d = tmp_path / name
     d.mkdir()
     (d / "dough.yaml").write_text(dough_yaml, encoding="utf-8")
@@ -43,7 +70,7 @@ def test_new_dough_posts_with_labels_and_box(tmp_path, monkeypatch, capsys):
     d = _make_dough(
         tmp_path, "greeter",
         "id: user.greeter\ninputs:\n  topic:\n    type: string\n",
-        "en:\n  name: Greeter\n  about: says hi\n",
+        _box(inputs=["topic"]),
     )
 
     rc = dough_publish.publish(str(d), draft=False)
@@ -60,7 +87,7 @@ def test_new_dough_posts_with_labels_and_box(tmp_path, monkeypatch, capsys):
 def test_existing_dough_puts(tmp_path, monkeypatch):
     rec = CallRecorder(get_status=200)
     monkeypatch.setattr(dough_publish, "call", rec)
-    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n")
+    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n", _box())
 
     rc = dough_publish.publish(str(d), draft=False)
     assert rc == 0
@@ -71,7 +98,7 @@ def test_existing_dough_puts(tmp_path, monkeypatch):
 def test_draft_flag_adds_query_on_put(tmp_path, monkeypatch):
     rec = CallRecorder(get_status=200)
     monkeypatch.setattr(dough_publish, "call", rec)
-    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n")
+    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n", _box())
 
     dough_publish.publish(str(d), draft=True)
     _, path, _ = rec.write_call()
@@ -81,7 +108,8 @@ def test_draft_flag_adds_query_on_put(tmp_path, monkeypatch):
 def test_id_defaults_to_user_plus_dirname(tmp_path, monkeypatch):
     rec = CallRecorder(get_status=404)
     monkeypatch.setattr(dough_publish, "call", rec)
-    d = _make_dough(tmp_path, "myauto", "inputs:\n  x:\n    type: string\n")
+    d = _make_dough(tmp_path, "myauto", "inputs:\n  x:\n    type: string\n",
+                    _box(inputs=["x"]))
 
     dough_publish.publish(str(d), draft=False)
     _, _, body = rec.write_call()
@@ -96,6 +124,7 @@ def test_server_managed_keys_are_stripped(tmp_path, monkeypatch):
     d = _make_dough(
         tmp_path, "x",
         "id: user.x\nversion: 7\ncreated_at: '2020'\nupdated_at: '2021'\ninputs: {}\n",
+        _box(),
     )
 
     dough_publish.publish(str(d), draft=False)
@@ -107,7 +136,7 @@ def test_server_managed_keys_are_stripped(tmp_path, monkeypatch):
 def test_inconclusive_probe_does_not_write(tmp_path, monkeypatch):
     rec = CallRecorder(get_status=503, get_body={"detail": "down"})
     monkeypatch.setattr(dough_publish, "call", rec)
-    d = _make_dough(tmp_path, "x", "id: user.x\ninputs: {}\n")
+    d = _make_dough(tmp_path, "x", "id: user.x\ninputs: {}\n", _box())
 
     rc = dough_publish.publish(str(d), draft=False)
     assert rc == 1
@@ -124,3 +153,57 @@ def test_missing_dough_yaml_reports_error(tmp_path, monkeypatch):
     rc = dough_publish.publish(str(empty), draft=False)
     assert rc == 1
     assert rec.calls == []  # bailed before any HTTP
+
+
+# --- the box gate: /test and /publish both reach Toast through publish() ---
+
+
+def test_missing_box_blocks_publish_before_any_http(tmp_path, monkeypatch, capsys):
+    rec = CallRecorder(get_status=404)
+    monkeypatch.setattr(dough_publish, "call", rec)
+    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n")
+
+    rc = dough_publish.publish(str(d), draft=False)
+    assert rc == 1
+    assert rec.calls == []  # not even the existence probe fired
+    assert "box_missing" in capsys.readouterr().out
+
+
+def test_en_only_box_blocks_publish(tmp_path, monkeypatch, capsys):
+    rec = CallRecorder(get_status=404)
+    monkeypatch.setattr(dough_publish, "call", rec)
+    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n",
+                    "en:\n  name: Greeter\n  about: says hi\n")
+
+    rc = dough_publish.publish(str(d), draft=False)
+    assert rc == 1
+    assert rec.calls == []
+    out = capsys.readouterr().out
+    assert "box_locale_missing" in out and "`ko:`" in out
+
+
+def test_incomplete_per_key_labels_block_publish(tmp_path, monkeypatch, capsys):
+    """en + ko both present, but ko's input entry has no description."""
+    rec = CallRecorder(get_status=404)
+    monkeypatch.setattr(dough_publish, "call", rec)
+    box = _box(inputs=["topic"]).replace("      description: the topic value\n", "", 1)
+    d = _make_dough(tmp_path, "greeter",
+                    "id: user.greeter\ninputs:\n  topic:\n    type: string\n", box)
+
+    rc = dough_publish.publish(str(d), draft=False)
+    assert rc == 1
+    assert rec.calls == []
+    assert "box_input_description_missing" in capsys.readouterr().out
+
+
+def test_draft_bypasses_the_gate_but_warns(tmp_path, monkeypatch, capsys):
+    """--draft parks a half-wired state; /test and /publish never pass it."""
+    rec = CallRecorder(get_status=200)
+    monkeypatch.setattr(dough_publish, "call", rec)
+    d = _make_dough(tmp_path, "greeter", "id: user.greeter\ninputs: {}\n")
+
+    rc = dough_publish.publish(str(d), draft=True)
+    assert rc == 0
+    assert rec.write_call() is not None
+    out = capsys.readouterr().out
+    assert "box_missing" in out and "not deployable" in out

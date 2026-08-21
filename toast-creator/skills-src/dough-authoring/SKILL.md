@@ -18,25 +18,89 @@ unreachable; SKIP the fetch and author from this skill's rules + the engine
 ground truths below (the offline loop is spelled out in "The loop", step 1).
 
 Its `action.agent` text is the full authoring contract — composition rules
-(R1–R15), ref resolution, box.yaml requirements, the basic.* control-flow
-flours, validator-error handling. This skill carries only what the guide
-assumes you know PLUS the engine ground truths the guide gets wrong or omits
-(verified against the engine 2026-06-11 — trust these over the guide on
-conflict).
+(R1–R15), ref resolution, the basic.* control-flow flours, validator-error
+handling. This skill carries only what the guide assumes you know PLUS the
+engine ground truths the guide gets wrong or omits — **and the box.yaml
+contract below, which is stricter than the guide's and than the engine's own
+check, so it is spelled out here and holds in both tiers** (verified against
+the engine 2026-06-11 — trust these over the guide on conflict).
 
 ## Where files go
 
 Author in the SESSION CWD, never in a Toast profile directory:
 `./<automation_slug>/doughs/<dough_slug>/` holding `dough.yaml` + a sibling
 `box.yaml` (engine file format). The cwd is the source of truth — visible
-and versionable by the user. Id is exactly `user.<slug>`, two segments, no
-nesting.
+and versionable by the user.
 
-**`box.yaml` `name:` is the user-facing label in the Toast app.** Name it for
-what the user gets ("Coupang reviews", "Daily BTC report"), not the mechanism —
-no jargon (`codegen`/`raw`/`wrapper`/`eval_js`/`API`), no slug-like strings, no
-trailing `(...)`. Short, reads like a product. (Kit `display_name` follows the
-same rule — see kit-authoring.)
+The dough is identified by `path:` — two segments, no nesting — and the first
+one is **the signed-in account's handle, not the literal `user`**. Read it off
+the profile (`{profile}/owner.yaml`) or off any dough already in
+`{profile}/doughs/`; it looks like `seihyun87@naver_2ecom.my_automation`. A
+`uid:` (`<handle>.do-<32 hex>`, minted once) sits above it. `id:` is the
+retired spelling and is rejected — a dough's id IS its path, one key, not two.
+
+## box.yaml is REQUIRED and gated — write it with the dough, not after
+
+`box.yaml` carries ALL display text (`description:` on inputs/outputs is
+rejected in dough.yaml, R12). **`en` must be complete** — locale `name` +
+`about`, plus `{name, description}` for EVERY declared input AND output key —
+and **every other locale carries `name` and nothing else**. The save API
+rejects `about` / `inputs` / `outputs` on a non-`en` locale, so filling them in
+is not extra care, it is a publish that will not go through. (A KIT FLOUR is
+the opposite: install copies its files verbatim, so its `ko` ships in full —
+see the kit-authoring skill.) This is enforced mechanically —
+`offline_validate.py` fails the build and `dough_publish.py` refuses to send
+anything — so a box on the wrong side of that split blocks test and publish
+outright.
+
+**Labels are written at CREATION ONLY.** The save API has no box write path: a
+later publish leaves the stored labels untouched, and per-key text does not
+survive the trip at all. Get the box right before the first publish, or write
+the corrected `box.yaml` into `{profile}/doughs/<handle>/<slug>/` by hand — the
+loader reads that file.
+
+```yaml
+en:
+  name: Coupang reviews             # user-facing label in the app
+  about: Collects review text for a product page and scores the sentiment.
+  inputs:
+    product_url:
+      name: Product URL             # 1-3 word noun phrase
+      description: The Coupang product page to collect reviews from.
+  outputs:
+    reviews:
+      name: Reviews
+      description: One entry per review with its text, rating, and date.
+ko:
+  name: 쿠팡 리뷰
+  about: 상품 페이지의 리뷰를 모아 감성을 분석한다.
+  inputs:
+    product_url:
+      name: 상품 URL
+      description: 리뷰를 수집할 쿠팡 상품 페이지.
+  outputs:
+    reviews:
+      name: 리뷰
+      description: 리뷰별 본문, 별점, 작성일.
+```
+
+Both tiers, not just cosmetics:
+- **`name:` is the user-facing label in the Toast app.** Name it for what the
+  user gets ("Coupang reviews", "Daily BTC report"), not the mechanism — no
+  jargon (`codegen`/`raw`/`wrapper`/`eval_js`/`API`), no slug-like strings, no
+  trailing `(...)`. Short, reads like a product. (Kit `display_name` follows
+  the same rule — see kit-authoring.)
+- **`description:` is load-bearing at RUNTIME.** It is the UI tooltip AND the
+  `# <hint>` grounding line injected into the agent prompt at bake time. Empty
+  description = the agent bakes with no hint.
+
+**Why it is a hard gate, not a lint:** the CRUD API persists `en.name`/
+`en.about` at CREATION ONLY — a PUT never touches them. A dough first
+published without them stays nameless permanently; the only fix is delete +
+re-create. `ko` does not reach the backend yet (it drops non-en locales), so
+today it buys a complete cwd source for the future write path — write it now,
+not in a migration later. In kit flours `ko` is already live, since install
+copies the files.
 
 Publishing goes through the API, not the filesystem:
 
@@ -153,15 +217,16 @@ structured; keep it small; plain `string` needs none.
    against workspace artifacts + floor capabilities (`basic.*`,
    `webengine.browser.*`, `thinking.*`), and flag every external-capability
    assumption as a warning for the report.
-2. Write `dough.yaml` + `box.yaml` under
-   `./<automation_slug>/doughs/<dough_slug>/`.
+2. Write `dough.yaml` + `box.yaml` (en complete, other locales name-only — see the box
+   contract above) under `./<automation_slug>/doughs/<dough_slug>/`.
 3. Static-validate:
    `python ${PLUGIN_ROOT}/scripts/offline_validate.py <dough_dir>` —
    the same engine validator, vendored, no backend needed. Every issue's
-   `hint` is a directive; fix in cwd and re-run. Two semantics: a dough that
+   `hint` is a directive; fix in cwd and re-run. Three semantics: a dough that
    fails to PARSE is reported as parse errors (never read an unparseable
-   dough as "0 issues"), and refs to flours outside the workspace come back
-   as WARNINGS — carry them into the report.
+   dough as "0 issues"), refs to flours outside the workspace come back
+   as WARNINGS — carry them into the report — and `box_*` issues are hard
+   errors that will also block registration later, so never defer them.
 
 That is the authoring bar. **Running it on the real engine — the test-bake,
 the repair loop, "done = a real bake ran green" — is {{test}},

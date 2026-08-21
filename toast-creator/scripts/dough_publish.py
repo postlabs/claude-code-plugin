@@ -7,10 +7,15 @@ authored under the session cwd and published through the API:
     python dough_publish.py pull <dough_id> <dest_dir>      # materialize into cwd
     python dough_publish.py delete <dough_id>               # remove from backend
 
-publish reads <dough_dir>/dough.yaml + box.yaml, builds the payload, checks
-existence via GET /doughs/{id}, then POST /doughs (new) or PUT /doughs/{id}
-(existing; ?draft=true with --draft). A 422 body carries validation_errors —
-publishing IS validation; they are printed verbatim.
+publish reads <dough_dir>/dough.yaml + box.yaml, applies the BOX GATE, builds
+the payload, checks existence via GET /doughs/{id}, then POST /doughs (new) or
+PUT /doughs/{id} (existing; ?draft=true with --draft). A 422 body carries
+validation_errors — publishing IS validation; they are printed verbatim.
+
+BOX GATE: box.yaml must exist and both `en` and `ko` must be complete
+(_common.box_issues) or nothing is sent. This is the choke point /test and
+/publish both traverse, so the gate is mechanical, not a documented step. Only
+--draft is exempt — it exists to park a half-wired state.
 
 LABEL CAVEAT (verified 2026-06-11): the CRUD API persists only en.name +
 en.about — sent as TOP-LEVEL payload extras "name"/"about" — and only at
@@ -35,7 +40,7 @@ import json
 import os
 import sys
 
-from _common import call, report, utf8_io
+from _common import box_issues, call, report, utf8_io
 
 utf8_io()
 
@@ -86,12 +91,33 @@ def publish(dough_dir: str, draft: bool) -> int:
     if not os.path.isfile(dough_path):
         return report(0, {"error": f"no dough.yaml under {dough_dir}"})
     dough = load_yaml(dough_path) or {}
-    box = (load_yaml(box_path) or {}) if os.path.isfile(box_path) else {}
+    box = (load_yaml(box_path) or {}) if os.path.isfile(box_path) else None
+
+    # BOX GATE — refuse to register an automation the user cannot read.
+    # Runs before any HTTP call, so /test and /publish (both of which reach
+    # Toast through this function) cannot ship an unlabelled dough. --draft
+    # is exempt by design: it exists to park a half-wired state, and neither
+    # /test nor /publish uses it.
+    problems = box_issues(dough, box, non_en_name_only=True)
+    if problems:
+        for p in problems:
+            print(json.dumps({"box_issue": p}, ensure_ascii=False))
+        if not draft:
+            return report(0, {
+                "error": f"box.yaml is incomplete under {dough_dir} — not published",
+                "issues": len(problems),
+                "hint": "fix the box_issue lines above in the WORKSPACE source "
+                        "and re-run. en and ko must both carry name + about and "
+                        "{name, description} for every input and output.",
+            })
+        print(json.dumps({"warning": "--draft: box gate skipped, this dough is "
+                                     "not deployable until the issues above are fixed"},
+                         ensure_ascii=False))
 
     payload = {k: v for k, v in dough.items() if k not in SERVER_KEYS}
     dough_id = payload.get("id") or "user." + os.path.basename(dough_dir)
     payload["id"] = dough_id
-    en = box.get("en") or {}
+    en = (box or {}).get("en") or {}
     # Top-level name/about extras are the ONLY labels the API persists (en, creation-only).
     if en.get("name"):
         payload["name"] = en["name"]
