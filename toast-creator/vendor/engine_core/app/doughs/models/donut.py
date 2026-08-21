@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.utils.base_model import AppBaseModel
 
@@ -147,6 +147,9 @@ class Artifact(AppBaseModel):
       is deferred until a real flour emits one.
     - ``app_window``: ``{ "app": str, "pid": int | None, "label": str | None }``.
       Native app the bake launched. Producer-side wiring deferred.
+    - ``shopping``: ``{ "title"?: str, "summary"?: str, "results": list[dict] }``.
+      Product-card grid — the frontend renders it through the ``<Spread>``
+      ``shopping`` template (image + price + rating + merchant per result).
     - ``raw``: ``{ "value": Any }``. JSON fallback for object outputs
       without a more specific renderer.
     """
@@ -194,7 +197,7 @@ class Donut(AppBaseModel):
     version: int = 1
 
     id: str
-    dough_id: str
+    dough_path: str
     dough_version: str = "1"
 
     status: Literal["baking", "done", "done_with_errors", "failed", "paused"] = "baking"
@@ -218,10 +221,31 @@ class Donut(AppBaseModel):
     llm_call_count: int = 0
     recovery_count: int = 0
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_carriers(cls, data: Any) -> Any:
+        """Retired render keys are DROPPED, not upgraded.
+
+        A donut carried the render spec for three eras — ``view``, then
+        ``spread``/``spark``, then a folded ``spread`` — and carries none now:
+        the layout belongs to the dough and is read when a card is built.
+
+        Dropped rather than refused, and the asymmetry with the canvas node is
+        deliberate: a donut is the RUN — its steps, timings, errors and output —
+        and the render spec was one optional field on it. Refusing the record
+        would throw away a bake's whole history to save a card, so the old keys
+        are stripped and the donut keeps its run.
+        """
+        if not isinstance(data, dict):
+            return data
+        for retired in ("view", "spark", "spread"):
+            data.pop(retired, None)
+        return data
+
     def to_summary(self) -> DonutSummary:
         return DonutSummary(
             id=self.id,
-            dough_id=self.dough_id,
+            dough_path=self.dough_path,
             status=self.status,
             result_type=self.result.type if self.result else None,
             started_at=self.started_at,
@@ -238,7 +262,7 @@ class DonutSummary(AppBaseModel):
     """Lightweight donut metadata for list responses."""
 
     id: str
-    dough_id: str
+    dough_path: str
     status: Literal["baking", "done", "done_with_errors", "failed", "paused"] = "baking"
     result_type: Literal["text", "action", "mixed"] | None = None
     started_at: str
@@ -254,17 +278,40 @@ class DonutSummary(AppBaseModel):
 
 
 class Glaze(AppBaseModel):
-    """Execution settings for baking a dough.
+    """Execution settings for baking a dough — two abstract dials, NO model name.
 
-    Sits alongside dough.yaml as glaze.yaml. Controls which LLM provider
-    and model the baker uses for llm: steps, plus runtime variables.
+    Sits alongside dough.yaml as glaze.yaml. A glaze never pins a concrete model
+    id; it carries an abstract coordinate that the adapter
+    (``app.cli.catalog.adapter.resolve``) turns into a concrete call against the
+    LIVE catalog at bake time. So a glaze written today still resolves after a
+    provider renames its lineup, with zero edits.
 
-    Fallback chain: dough glaze → profile default → system LLM_PROVIDER.
-    Recovery/budget settings are hardcoded in Baker for now.
+    Two orthogonal dials, both ALWAYS applied:
+      - ``level``  — the capability rung, cheap → strong:
+        ``superlight | light | standard | frontier | apex``. A tier with no model
+        on a given provider snaps to the nearest occupied rung (ties → cheaper).
+      - ``effort`` — ``low | medium | high | xhigh | max | ultra`` — reasoning
+        depth, applied at EVERY level, clamped to the model's own ceiling (ties →
+        higher). A separate CLI param for claude/codex; fused into the model id
+        for agy. Never silently dropped.
+
+    Provider/level/effort fallback chain (merged leg-by-leg, filling only the
+    still-``None`` legs at each step — see ``definitions/glaze.py::resolve``):
+    dough glaze.yaml → profile default_glaze.yaml → FLOOR. The FLOOR is the
+    profile's LIGHT session (``cli_sessions["light"]`` slot: provider + level +
+    effort), else ``Glaze(provider=DEFAULT_AGENT_PROVIDER, level="light")`` — NOT
+    a hardcoded opus/frontier. Because there is no model name, the three legs fill
+    independently (no provider+model coherent-pair coupling). Recovery/budget
+    settings are hardcoded in Baker for now.
+
+    One (level, effort) resolves at the bake root and threads into every nested
+    flour; an individual ``agent:`` flour may override either via ``action.level``
+    / ``action.effort`` (see ``execution/actions.run_agent_action``).
     """
 
     provider: str | None = None
-    model: str | None = None
+    level: str | None = None
+    effort: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
     variables: dict[str, Any] = Field(default_factory=dict)

@@ -12,17 +12,20 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from app.doughs.validation.rules import (
-    CUSTOM_ROOT_FOLDER,
+    custom_prefix,
+    custom_root,
     MAX_DEPTH,
-    WEB_DOUGHS_ROOT,
     is_valid_segment,
 )
+from app.utils import idpath
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from app.doughs.definitions.service import DoughStore
 
 
-def bare_dough_id(dough_ref: str) -> str:
+def bare_dough_path(dough_ref: str) -> str:
     """Last segment of a dot-form id.
 
     ``a.b.c.z`` → ``z``; ``z`` → unchanged. Empty/None refs round-trip
@@ -41,11 +44,11 @@ def last_dough_id_in_steps(do_steps: list[dict[str, Any]]) -> str | None:
     """
     for raw in reversed(do_steps):
         if isinstance(raw, dict) and isinstance(raw.get("dough"), str):
-            return bare_dough_id(raw["dough"])
+            return bare_dough_path(raw["dough"])
     return None
 
 
-def slugify_dough_id(name: str) -> str:
+def slugify_dough_path(name: str) -> str:
     """Derive a custom-dough slug from a display name.
 
     Lowercases, collapses whitespace to `_`, drops everything outside
@@ -65,22 +68,40 @@ def slugify_dough_id(name: str) -> str:
 # Reserved roots that are NOT contributed by a kit. The full reserved set is
 # the union of these plus the first segment of every loaded kit's emit path
 # (see `reserved_top_levels`).
-#
-# `user` is the custom-dough root (no kit ships it). `web` is the web-dough
-# emit root — web doughs come from `web_recorder` / `web_sprint`, not a kit.
-_NON_KIT_RESERVED_ROOTS = frozenset({
-    CUSTOM_ROOT_FOLDER,
-    WEB_DOUGHS_ROOT,
-})
+def _non_kit_reserved_roots() -> frozenset[str]:
+    """Reserved roots no kit contributes.
+
+    The author root is per-profile now (`custom_root()`), so this cannot be a
+    module-level frozenset — one built at import would pin whichever profile was
+    active first and then reject the real owner's own doughs.
+    """
+    return frozenset({custom_root()})
 
 
 # Bundled kit FAMILIES are reserved statically, not only once their wave has
 # loaded. Kits install in topo order, and a dough walk during startup (e.g.
 # `GET /api/v1/kits` firing before the last wave finishes) must not reject a
-# bundled kit's doughs for a load-timing reason. Mirrors the family roots in
-# `app.kits.manifest.manifest.VENDOR_BUNDLED_ONLY`; keep the two in sync.
+# bundled kit's doughs for a load-timing reason.
+#
+# ★ THE INVARIANT IS "EVERY BUNDLED KIT'S INSTALL ROOT", and it is pinned by
+# `tests/e2e/test_bundled_family_roots.py` rather than by the comment that used
+# to sit here. That comment said "mirrors VENDOR_BUNDLED_ONLY; keep the two in
+# sync" and nobody did: `utilities` was in that set and not in this one, so all
+# four `utilities.image.*` doughs were rejected at load with "top-level
+# 'utilities' is not a reserved root" whenever the walk beat the kit's wave.
+#
+# It was never only `utilities`. Measured when it was found: 23 bundled install
+# roots against 8 reserved here — the other 14 (`naver`, `agoda`, `trip_com`, …)
+# were one load-order shuffle away from the identical failure. `delivery`
+# DEFAULTS to "bundled", so a new top-level kit joins this list by existing,
+# which is exactly why a hand-kept list drifts and a test is the fix.
+#
+# Not derived at import: this module is imported on hot paths and the derivation
+# is a walk of every `kit.yaml`. Explicit set + a test that recomputes it.
 _BUNDLED_FAMILY_ROOTS = frozenset({
-    "postlab", "advanced", "basic", "thinking", "mcpkits", "webengine",
+    # Floor + system families.
+    "basic", "advanced", "thinking", "webengine", "manual", "taste",
+    "postlab", "utilities",
 })
 
 
@@ -90,7 +111,7 @@ def reserved_top_levels() -> frozenset[str]:
     For each loaded kit, the FIRST segment of its emit path is reserved.
     `postlab.kakaotalk` → `kakaotalk/` → reserves `kakaotalk`. Resolved on
     every call so newly-loaded kits are picked up without a process restart.
-    Non-kit roots are `user` (custom doughs) and `web` (web dough emit root);
+    The one non-kit root is the profile's author handle (`custom_root()`);
     bundled families (`_BUNDLED_FAMILY_ROOTS`) are reserved unconditionally so a
     mid-startup walk never rejects a not-yet-loaded bundled kit's doughs.
     """
@@ -104,29 +125,35 @@ def reserved_top_levels() -> frozenset[str]:
         except ValueError:
             continue
         kit_roots.add(install_path.split("/", 1)[0])
-    return _NON_KIT_RESERVED_ROOTS | _BUNDLED_FAMILY_ROOTS | frozenset(kit_roots)
+    return _non_kit_reserved_roots() | _BUNDLED_FAMILY_ROOTS | frozenset(kit_roots)
 
 
-def validate_dough_id(dough_id: str) -> str | None:
-    """Return an error message if dough_id is not well-formed, else None.
+def validate_dough_path(dough_path: str) -> str | None:
+    """Return an error message if dough_path is not well-formed, else None.
 
     Canonical dough ids are dot-joined lowercase segments that mirror the
     on-disk path 1:1 (``.`` ↔ ``/``) for *every* class — custom ids included
-    (``user.work.triage`` ↔ ``doughs/user/work/triage``). Every segment
-    matches [a-z0-9_]; depth (segment count) is capped at ``MAX_DEPTH``. The
-    first segment MUST be a reserved top-level (see `reserved_top_levels`) —
-    for custom doughs that root is always ``user``.
+    (``<handle>.work.triage`` ↔ ``doughs/<handle>/work/triage``). Depth is
+    capped at ``MAX_DEPTH``. The first segment MUST be a reserved top-level
+    (see `reserved_top_levels`) — for an authored dough that is the profile's
+    own handle, which is why the set is resolved per call and not at import.
     """
-    if not dough_id:
+    if not dough_path:
         return "dough id cannot be empty"
-    segments = [s for s in dough_id.split(".") if s]
+    segments = [s for s in dough_path.split(".") if s]
     if not segments or len(segments) > MAX_DEPTH:
-        return f"'{dough_id}' has an invalid depth"
+        return f"'{dough_path}' has an invalid depth"
     for seg in segments:
         if not is_valid_segment(seg):
             return (
-                f"segment '{seg}' in '{dough_id}' is not well-formed: use "
+                f"segment '{seg}' in '{dough_path}' is not well-formed: use "
                 f"lowercase letters, digits, and underscore only (1-50 chars)"
+            )
+        if idpath.is_uid_shaped(seg):
+            return (
+                f"segment '{seg}' in '{dough_path}' has the reserved uid shape "
+                f"(do-/sp- + 32 hex) — a path segment may not be uid-shaped, or a "
+                f"scoped id `<handle>.<uid>` could not be told from a path"
             )
     reserved = reserved_top_levels()
     if segments[0] not in reserved:
@@ -137,7 +164,7 @@ def validate_dough_id(dough_id: str) -> str | None:
     return None
 
 
-def prepare_unique_dough_id(
+def prepare_unique_dough_path(
     store: "DoughStore",
     name: str,
     *,
@@ -148,31 +175,30 @@ def prepare_unique_dough_id(
     auto-suffix on a same-path collision.
 
     Now that a custom dough's id IS its folder path, the id is composed from
-    the target ``folder`` (slash- or dot-form, rooted at ``user``) plus the
-    slugified leaf: ``folder='user/work'`` + ``name='Triage'`` →
-    ``user.work.triage``. The folder defaults to the custom root (``user``)
-    when omitted, and is prefixed with ``user.`` if a bare relative folder is
-    passed.
+    the target ``folder`` (slash- or dot-form, rooted at the profile's handle)
+    plus the slugified leaf: ``folder='<handle>/work'`` + ``name='Triage'`` →
+    ``<handle>.work.triage``. The folder defaults to ``custom_root()`` when
+    omitted, and is prefixed with it if a bare relative folder is passed.
 
-    Returns ``(dough_id, error)``. Error is non-None only when ``name`` has no
+    Returns ``(dough_path, error)``. Error is non-None only when ``name`` has no
     slug-safe characters or composes to an invalid id. Collisions do not error
     — the function appends ``_2``, ``_3``, … to the LEAF until it finds a free
     id. ``current_path_id`` is excluded from the uniqueness check so renaming
     back to the original slug is allowed.
     """
-    slug = slugify_dough_id(name)
+    slug = slugify_dough_path(name)
     if not slug:
         return "", (
             f"name '{name}' has no slug-safe characters. "
             f"Use lowercase letters, digits, and underscores."
         )
-    norm_folder = (folder or CUSTOM_ROOT_FOLDER).replace("/", ".").strip(".")
+    norm_folder = (folder or custom_root()).replace("/", ".").strip(".")
     if not norm_folder:
-        norm_folder = CUSTOM_ROOT_FOLDER
-    if norm_folder.split(".")[0] != CUSTOM_ROOT_FOLDER:
-        norm_folder = f"{CUSTOM_ROOT_FOLDER}.{norm_folder}"
+        norm_folder = custom_root()
+    if norm_folder.split(".")[0] != custom_root():
+        norm_folder = f"{custom_root()}.{norm_folder}"
     base = f"{norm_folder}.{slug}"
-    id_err = validate_dough_id(base)
+    id_err = validate_dough_path(base)
     if id_err:
         return "", f"cannot derive a valid id from '{name}': {id_err}"
     candidate = base
@@ -185,23 +211,92 @@ def prepare_unique_dough_id(
     return candidate, None
 
 
-def id_from_path(rel_path: str) -> str:
-    """Convert a disk-relative path under `doughs/` to the canonical dot-form id.
+# The `path IS the id` mapping is shared with the view and type trees.
+id_from_path = idpath.id_from_path
+path_from_id = idpath.path_from_id
 
-    One uniform mapping for every class: join every path segment with `.`.
-    ``user/work/triage`` → ``user.work.triage``;
-    ``google/gmail/search`` → ``google.gmail.search``.
+
+def resolve_dough_dir(
+    doughs_dir: "Path", dough_path: str, overlay_root: "Path | None" = None,
+) -> "Path":
+    """Where a dough's directory IS, given an optional session tray to look in first.
+
+    ★ THE OVERLAY IS WHAT MAKES A DRAFT BAKEABLE, which is what makes NESTING
+    work. A dough being authored lives on its session's tray, not in the served
+    tree; without a second root it could not resolve, so it could not bake — and
+    a parent draft could never be proved, because proving it means running its
+    child drafts too. Publishing before proving was the alternative, and it
+    inverts the order: it ships the whole set to the library on the strength of
+    no evidence.
+
+    ★ PRECEDENCE IS DRAFT-OVER-PUBLISHED, and only for the AUTHOR root. Kit ids never
+    consult the overlay — nothing authors into a kit namespace, so letting a tray
+    shadow a kit namespace would buy nothing and risk everything. Within it
+    the only way both can exist is that the agent is EDITING a published dough,
+    and there the draft is exactly what the caller means.
+
+    ★ THE OVERLAY IS RESOLUTION-ONLY, never discovery. Listing and search walk
+    ``doughs_dir`` directly and so never see a tray — which is what keeps a
+    half-written dough out of the user's library while still letting the agent
+    bake it by id.
+
+    An absent ``overlay_root``, or an id with no draft behind it, falls through
+    to the served tree, so every non-chat caller (the run panel, staff, memo
+    atoms) behaves exactly as it did before this existed.
+
+    ★ THIS ANSWERS A READ QUESTION, AND IT CANNOT CREATE. The existence check is
+    what makes precedence meaningful — given an id that may live in two places,
+    which one does the caller mean — but it means a dough being CREATED, which
+    is in neither place, always resolves to the served tree. Routing a create
+    through here (``DoughStore(overlay_root=…).save_dough`` on a fresh id)
+    therefore publishes silently while reading as drafting; it cost the whole
+    tray-drafting feature once, because ``finalize`` then refuses the id forever
+    with "is not on this session's tray". Writing a draft is
+    ``definitions/draft.py::write_draft``, which takes the tray as a destination
+    rather than asking for one — and deliberately does NOT go through
+    ``save_dough``, whose trailing discovery/doc2query/cloud-push acts all
+    belong to the library. Pinned by ``tests/web/test_use_is_the_proof.py``.
     """
-    segments = [s for s in rel_path.replace("\\", "/").split("/") if s]
-    if not segments:
-        return ""
-    return ".".join(segments)
+    # A uid ref resolves by IDENTITY, not path — the durable uid an inner dough is
+    # referenced by, so a rename or move of the child never breaks the parent that
+    # calls it. The uid is looked up whole. Tray first (a co-drafted child), then
+    # the served tree's cached index. A uid never collides with a path id: no path
+    # segment is uid-shaped (grammar reservation).
+    parsed = idpath.parse_scoped(dough_path)
+    if (parsed and parsed[1].startswith("do-")) or dough_path.startswith("do-"):
+        if overlay_root is not None:
+            # The overlay IS the tray; doughs live under its `doughs/` sibling
+            # (the spread loader appends `spreads/` the same way).
+            hit = _find_uid_dir(overlay_root / "doughs", dough_path)
+            if hit is not None:
+                return hit
+        from app.doughs.definitions.identity import resolve_uid
+        ref = resolve_uid(doughs_dir, dough_path)
+        if ref is not None and ref.kind == "dough":
+            return ref.dir
+        # A uid that resolves nowhere returns a path that does not exist, so the
+        # caller's missing-dough handling fires exactly as for a bad path id.
+        return doughs_dir / dough_path
+
+    if overlay_root is not None and dough_path.startswith(custom_prefix()):
+        candidate = (overlay_root / "doughs").joinpath(*path_from_id(dough_path))
+        if (candidate / "dough.yaml").is_file():
+            return candidate
+    return doughs_dir.joinpath(*path_from_id(dough_path))
 
 
-def path_from_id(dough_id: str) -> tuple[str, ...]:
-    """Convert a canonical dot-form id to disk path segments.
-
-    One uniform mapping for every class: split on `.`. The id IS the path, so
-    ``user.work.triage`` → ``(user, work, triage)``.
-    """
-    return tuple(dough_id.split("."))
+def _find_uid_dir(root: "Path", uid: str) -> "Path | None":
+    """Scan ``root`` for the dough.yaml carrying ``uid`` — the tray lookup a uid
+    ref needs (the served tree uses the cached identity index instead). A tray
+    holds a handful of drafts, so the walk is cheap, and nothing caches it: a
+    draft's uid can be minted between two resolves."""
+    if not root.is_dir():
+        return None
+    from app.doughs.definitions.identity import read_uid
+    for p in root.rglob("dough.yaml"):
+        try:
+            if read_uid(p) == uid:
+                return p.parent
+        except OSError:
+            continue
+    return None

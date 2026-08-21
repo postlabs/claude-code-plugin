@@ -10,14 +10,18 @@ Env:
     TOAST_REPO — path to the mojo checkout to vendor from
                  (default C:/Code/mojo/.worktrees/automation-view)
 
-Closure = 19 files copied VERBATIM + 2 docstring-only STUBS (proven 2026-06-11):
+Closure = 35 files copied VERBATIM + 4 docstring-only STUBS (recomputed 2026-08-21):
 
     - app/utils/__init__.py — the real one re-exports app.utils.logger, which
       drags structlog + app.config.settings; nothing in the closure needs it.
     - app/doughs/execution/__init__.py — the real one re-exports the bake
       engine (events/run/sink); the closure needs only execution/resolver.py.
+    - app/utils/profile/{__init__,owner}.py — Dough.folder defaults to the
+      signed-in handle, read off the active profile through the logger and
+      the settings. Offline the value is never read back, so a placeholder
+      string is enough.
 
-    NEVER copy those two verbatim — that reintroduces structlog/app.config and
+    NEVER copy those verbatim — that reintroduces structlog/app.config and
     the whole bake engine into the vendored tree.
 
 Third-party deps of the vendored tree: pydantic ONLY (callers additionally
@@ -77,8 +81,33 @@ VERBATIM: list[str] = [
     "app/doughs/models/steps.py",
     "app/doughs/models/dough.py",
     "app/doughs/models/donut.py",
-    "app/doughs/models/web_dough.py",
+    # web_dough.py left the engine upstream — the web dough is no longer its own
+    # Dough subclass, so models/__init__ stopped importing it. Keeping it here
+    # only made the sync refuse to run against any current checkout.
     "app/utils/base_model.py",
+    # checks.py now derives an artifact's tier and authorizes against it before
+    # applying the rules that depend on it. The policy package is stdlib-only
+    # and self-contained, so it joins the closure without dragging anything in.
+    "app/policy/__init__.py",
+    "app/policy/tier.py",
+    "app/policy/capabilities.py",
+    "app/policy/decide.py",
+    # rules.py reads a dough's handle out of its path.
+    "app/utils/idpath.py",
+    # A dough's view is validated against the spread block catalog now, so the
+    # spread slice came along with it. Self-contained: model/catalog/refs plus
+    # the spark sub-package, no logger and no settings.
+    "app/spreads/__init__.py",
+    "app/spreads/model.py",
+    "app/spreads/catalog.py",
+    "app/spreads/refs.py",
+    "app/spreads/validate.py",
+    "app/spreads/viewops.py",
+    "app/spreads/spark/__init__.py",
+    "app/spreads/spark/model.py",
+    "app/spreads/spark/anchor.py",
+    "app/spreads/spark/capability.py",
+    "app/spreads/spark/validate.py",
 ]
 
 # Docstring-only stubs — see module docstring for why these two MUST be
@@ -99,6 +128,26 @@ STUBS: dict[str, str] = {
         "(events / run / sink). The offline validation closure needs only\n"
         'execution/resolver.py (stdlib-only REF_PATTERN).\n"""\n'
     ),
+    "app/utils/profile/__init__.py": (
+        '"""Vendored stub (sync_engine_core.py — do not edit)."""\n'
+    ),
+    "app/utils/profile/owner.py": (
+        '"""Vendored stub (sync_engine_core.py — do not edit).\n'
+        "\n"
+        "``Dough.folder`` defaults to the signed-in account's handle, which the\n"
+        "real module reads out of the active profile on disk — through the\n"
+        "logger and the settings, the two things this slice exists to avoid.\n"
+        "Validation never reads the value back (``folder`` is re-derived from\n"
+        "the path at load and is not persisted), so offline it only has to be\n"
+        'a string.\n"""\n'
+        "\n"
+        "from __future__ import annotations\n"
+        "\n"
+        "\n"
+        "def active_handle() -> str:\n"
+        '    """The placeholder authoring root used when no profile is present."""\n'
+        '    return "user"\n'
+    ),
 }
 
 # Subprocess smoke run after every sync — the drift guard.
@@ -115,13 +164,13 @@ assert os.path.realpath(app.__file__).startswith(vendor), (
 from app.doughs.validation.engine import validate_yaml
 
 CLEAN = {
-    "id": "user.smoke_clean",
+    "path": "user.smoke_clean",
     "inputs": {"topic": {"type": "string", "required": True}},
     "steps": [{"dough": "user.helper", "with": {"q": "${inputs.topic}"}}],
     "return": {"result": "${helper}"},
 }
 BROKEN = {
-    "id": "user.smoke_broken",
+    "path": "user.smoke_broken",
     "inputs": {"topic": {"type": "string", "required": True}},
     "steps": [{"dough": "user.helper", "with": {"q": "${nonexistent.value}"}}],
     "return": {"result": "${helper}"},

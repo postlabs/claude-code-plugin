@@ -8,40 +8,21 @@ Pure: takes models, returns plain data (issue-param dicts / field sets), no
 
 from __future__ import annotations
 
-import functools
 from typing import Any
 
 from app.doughs.models import Dough, OutputDef
 
 
-@functools.lru_cache(maxsize=256)
 def _resolve_model_fields(model_ref: str) -> set[str] | None:
-    """Return the top-level field names of a Pydantic model referenced as
-    ``module.path:ClassName``. Returns ``None`` if the ref is malformed, the
-    module won't import, the class doesn't exist, or it isn't a Pydantic
-    ``BaseModel``. Callers treat ``None`` as "skip the check".
-
-    Cached because a single dough often drills into the same model multiple
-    times across refs.
-    """
-    if ":" not in model_ref:
-        return None
-    module_path, class_name = model_ref.rsplit(":", 1)
-    try:
-        import importlib
-        mod = importlib.import_module(module_path)
-    except Exception:
-        return None
-    cls = getattr(mod, class_name, None)
-    if cls is None:
-        return None
-    try:
-        from pydantic import BaseModel
-    except ImportError:
-        return None
-    if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
-        return None
-    return set(cls.model_fields.keys())
+    """Top-level field names of a ``model:`` reference — EITHER branch: a
+    colon ref resolves a kit Pydantic class, a dot-path resolves a type
+    artifact (co-located with its owner, read by id across the spread + dough
+    trees). One resolver (``app.typedefs.resolve``) so
+    which branch a reference took is invisible to every consumer. ``None`` =
+    "shape unknowable, skip the check" — the posture this check has always
+    had."""
+    from app.typedefs.resolve import field_names
+    return field_names(model_ref)
 
 
 # Dot-path segments the resolver treats specially (see resolver._resolve_path):

@@ -125,9 +125,17 @@ class Resolver:
           "inputs.query"      → context["inputs"]["query"]
           "search_results"    → context["search_results"]
           "thread.id"         → context["thread"]["id"]
+          "vault.card_pin"    → a SecretRef — the REFERENCE, never the value
         """
         parts = path.split(".")
         root = parts[0]
+
+        # ``vault`` is not in the context and must never be put there: a
+        # resolved with: block is journaled and published into the donut, so a
+        # value resolved here reaches disk. Only a SINK redeems. See
+        # app/vault/ref.py for why the carrier is the text and not the type.
+        if root == "vault":
+            return self._vault_ref(parts[1:], path)
 
         obj = self._context.get(root)
         if obj is None:
@@ -150,3 +158,24 @@ class Resolver:
                 obj = getattr(obj, part, None)
 
         return obj
+
+    @staticmethod
+    def _vault_ref(rest: list[str], path: str) -> Any:
+        """``${vault.<key>}`` → :class:`SecretRef`. Anything else RAISES.
+
+        Deliberately loud where the rest of this class is silent. An unresolved
+        ordinary ref answers ``None`` because absence is a normal runtime state;
+        a malformed secret ref is not — it is a dough that will type an empty
+        string into a password field and report success. There is also nothing
+        to walk INTO a secret, so a dotted path past the key is always a
+        mistake rather than a miss.
+        """
+        from app.vault.ref import SecretRef
+
+        if len(rest) != 1 or not rest[0]:
+            raise ValueError(
+                f"'${{{path}}}' is not a vault reference — write "
+                "${vault.<key>} exactly, with one key and no dotted path "
+                "(a secret has no fields to read)"
+            )
+        return SecretRef(rest[0])

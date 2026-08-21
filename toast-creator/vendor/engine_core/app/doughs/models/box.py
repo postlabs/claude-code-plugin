@@ -20,12 +20,10 @@ class FieldBox(AppBaseModel):
 
     Two tiers:
 
-    - ``name`` — short label rendered in canvas bindings, input forms,
-      output panels.
-    - ``description`` — longer behavioral text. Surfaced as the input
-      tooltip in the UI AND injected as the ``# <hint>`` grounding line
-      into the creator/baker agent prompts. When empty, the agent gets
-      no hint and the tooltip slot stays blank.
+    - ``name`` — short label rendered in bake-form fields and binding rows.
+    - ``description`` — the behavioral sentence: the form hint, and the
+      per-field prose ``query.spec()`` hands the agent. When empty, both
+      slots stay blank.
 
     Legacy flat-string entries from older box.yaml files are accepted at
     load time and normalized to ``{name: <string>, description: ""}`` —
@@ -49,15 +47,11 @@ class BoxLocale(AppBaseModel):
     keyed by input/output name. Legacy flat-string entries (``key: <label>``)
     are accepted at load and normalized to ``FieldBox(name=<label>)``.
 
-    ``steps`` is a flat ``key → label`` map (e.g. ``load_queue: "Load queue"``).
-    Object-form entries from older box.yaml files are accepted and normalized
-    to the plain string form at load time.
-
-    ``step_inputs`` is auto-populated by ``compose_dough_box`` from each called
-    flour's own ``box.yaml::inputs``. Shape: ``{ bare_flour_id → { input_key →
-    FieldBox } }``. Never authored directly — it's a transport channel that
-    lets the frontend label binding rows (e.g. ``folder`` → ``"보낸 편지함
-    라벨"``) without re-fetching the called flour's box.
+    ``steps`` is a flat ``key → label`` map (e.g. ``load_queue: "Load queue"``)
+    — this dough's OWN override for what a step is called. Object-form entries
+    from older box.yaml files are accepted and normalized to the plain string
+    form at load time. Absent, the reader resolves the label from the called
+    dough itself.
     """
 
     name: str
@@ -65,19 +59,11 @@ class BoxLocale(AppBaseModel):
     inputs: dict[str, FieldBox] = Field(default_factory=dict)
     outputs: dict[str, FieldBox] = Field(default_factory=dict)
     steps: dict[str, str] = Field(default_factory=dict)
-    step_inputs: dict[str, dict[str, FieldBox]] = Field(default_factory=dict)
 
     @field_validator("inputs", "outputs", mode="before")
     @classmethod
     def _normalize_field_map(cls, raw: Any) -> Any:
         return _coerce_field_map(raw)
-
-    @field_validator("step_inputs", mode="before")
-    @classmethod
-    def _normalize_step_inputs(cls, raw: Any) -> Any:
-        if not isinstance(raw, dict):
-            return raw
-        return {k: _coerce_field_map(v) for k, v in raw.items()}
 
     @field_validator("steps", mode="before")
     @classmethod
@@ -112,8 +98,10 @@ def _coerce_field_map(raw: Any) -> Any:
 class Box(AppBaseModel):
     """Multi-locale display text container (box.yaml).
 
-    Top-level keys are locale codes: en, ko, ja, etc.
-    Validated as a root dict of BoxLocale entries.
+    Top-level keys are locale codes. Validated as a root dict of BoxLocale
+    entries. ``en`` is the full block; a non-``en`` locale carries ``name``
+    only — see ``definitions/box.py`` for why, and
+    ``checks.box_completeness`` for the gate.
 
     YAML shape:
       en:
@@ -125,7 +113,6 @@ class Box(AppBaseModel):
           emails: Fetch unread emails
       ko:
         name: 모닝 브리핑
-        ...
     """
 
     locales: dict[str, BoxLocale] = Field(default_factory=dict)

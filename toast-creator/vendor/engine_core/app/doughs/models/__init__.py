@@ -19,8 +19,7 @@ Layering (leaf → root), strictly acyclic:
            └─► (donut) ◄─ ports ─┘
 
 ``dough`` owns the ``Dough`` root model; ``donut`` owns the runtime/result
-models and rides on the same leaves. The deferred ``web:`` step registration
-happens here, after ``Dough`` exists (``web_dough`` subclasses it).
+models and rides on the same leaves.
 """
 
 from app.doughs.models.enums import (
@@ -66,14 +65,6 @@ from app.doughs.models.donut import (
     WorkflowEvent,
     new_donut_id,
 )
-
-# ── Deferred `web:` step registration ────────────────────────────────────────
-# `web_dough` subclasses `Dough`, so it can't be imported until `Dough` exists.
-# Import the source submodule directly (`...models.dough`, done above) so this
-# wiring doesn't depend on facade load order.
-from app.doughs.models.web_dough import WebStep as _WebStep
-
-STEP_KEY_MAP["web"] = _WebStep
 
 
 __all__ = [

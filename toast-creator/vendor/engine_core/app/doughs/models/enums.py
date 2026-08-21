@@ -22,7 +22,6 @@ class FailureClass(str, Enum):
 
 class RecoveryTier(str, Enum):
     normalize = "normalize"
-    widen = "widen"
     retry = "retry"
 
 
@@ -34,11 +33,5 @@ class WorkflowEventType(str, Enum):
     recovery_started = "recovery_started"
     recovery_succeeded = "recovery_succeeded"
     recovery_failed = "recovery_failed"
-    user_prompted = "user_prompted"
-    user_responded = "user_responded"
-    child_bake_started = "child_bake_started"
-    child_bake_completed = "child_bake_completed"
-    side_effect_prepared = "side_effect_prepared"
-    side_effect_confirmed = "side_effect_confirmed"
     checkpoint_saved = "checkpoint_saved"
     bake_resumed = "bake_resumed"

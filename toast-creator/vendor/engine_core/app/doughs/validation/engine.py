@@ -9,7 +9,7 @@ Two entry points:
   run pre-write checks. Surfaces both ``FORBIDDEN_PRE_PARSE_KEYS``
   rejections (shape-inferred fields) and standard validation issues.
 
-:func:`validate_dough_id` lives in ``id_utils.py`` — it validates an id
+:func:`validate_dough_path` lives in ``id_utils.py`` — it validates an id
 string, not a Dough. Reference drilling lives in ``drill.py``.
 
 Issues are :class:`ValidationIssue` instances — a ``str`` subclass
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import ValidationError as PydanticValidationError
 
 from app.doughs.validation import checks, drill
-from app.doughs.definitions.ids import bare_dough_id, last_dough_id_in_steps
+from app.doughs.definitions.ids import bare_dough_path, last_dough_id_in_steps
 from app.doughs.execution.resolver import REF_PATTERN
 from app.doughs.models import (
     MAX_PARALLEL_CEILING,
@@ -36,13 +36,15 @@ from app.doughs.models import (
     AllStep, DoughStep, EachStep,
     parse_step,
 )
+from app.spreads.validate import composition_spec
+from app.spreads.spark.validate import TargetInputs, spark_spec
+from app.spreads.spark import model as spark_model
 from app.doughs.validation.rules import (
-    CLASS_USER_PREFIX,
+    custom_prefix,
     FORBIDDEN_PRE_PARSE_KEYS,
     FORBIDDEN_STEP_KEYS,
     is_fixed,
     is_kit_dough,
-    is_web_dough,
 )
 
 if TYPE_CHECKING:
@@ -75,14 +77,21 @@ class ValidationCode(StrEnum):
     ALL_STEP_MISSING_ITER = "all_step_missing_iter"
     ALL_STEP_MISSING_DO = "all_step_missing_do"
     ALL_STEP_MAX_PARALLEL_RANGE = "all_step_max_parallel_range"
+    ALL_STEP_BATCH_SIZE = "all_step_batch_size"
+    ALL_STEP_SHARED_TAB_HANDLE = "all_step_shared_tab_handle"
     STEP_INLINE_PRIMITIVE_FORBIDDEN = "step_inline_primitive_forbidden"
     STEP_MULTIPLE_KEYS = "step_multiple_keys"
+    STEP_WITH_KEY_UNKNOWN = "step_with_key_unknown"
+    STEP_WITH_REQUIRED_MISSING = "step_with_required_missing"
     STEP_UNKNOWN_SHAPE = "step_unknown_shape"
     STEP_FIELD_SAVE_REMOVED = "step_field_save_removed"
     STEP_FIELD_WHEN_REMOVED = "step_field_when_removed"
     STEP_FIELD_ON_ERROR_REMOVED = "step_field_on_error_removed"
+    STEP_LITERAL_ARIA_REF = "step_literal_aria_ref"
+    WEB_QUERY_NEVER_APPLIED = "web_query_never_applied"
+    LOGIN_CONTRACT_INCOMPLETE = "login_contract_incomplete"
+    RUN_STEPS_DRIVE_UNGUARDED = "run_steps_drive_unguarded"
     USER_FLOUR_TOOL_FORBIDDEN = "user_flour_tool_forbidden"
-    USER_FLOUR_WEB_FORBIDDEN = "user_flour_web_forbidden"
     INPUT_REF_UNDECLARED = "input_ref_undeclared"
     REF_NO_PUBLISHER = "ref_no_publisher"
     REF_DRILL_FIELD_NOT_FOUND = "ref_drill_field_not_found"
@@ -103,10 +112,21 @@ class ValidationCode(StrEnum):
     DOUGH_REF_NOT_FOUND = "dough_ref_not_found"
     OUTPUT_DISPLAY_TYPE_MISMATCH = "output_display_type_mismatch"
     OUTPUT_DISPLAY_REQUIRES_EACH = "output_display_requires_each"
+    INVALID_SPREAD = "invalid_spread"
+    INVALID_SPARK = "invalid_spark"
+    SPREAD_REF_INVALID = "spread_ref_invalid"
     BOX_INPUT_LABEL_MISSING = "box_input_label_missing"
     BOX_OUTPUT_LABEL_MISSING = "box_output_label_missing"
     BOX_INPUT_DESCRIPTION_MISSING = "box_input_description_missing"
     BOX_OUTPUT_DESCRIPTION_MISSING = "box_output_description_missing"
+    BOX_INPUT_ORPHAN = "box_input_orphan"
+    BOX_OUTPUT_ORPHAN = "box_output_orphan"
+    BOX_NON_EN_SLOT = "box_non_en_slot"
+    YAML_COMMENT = "yaml_comment"
+    # A Pydantic model-schema error (extra/misplaced key, wrong type) surfaced
+    # by validate_yaml(strict_schema=True) for callers with no save-path
+    # model_validate of their own (the /validate endpoint → peel validate_dough).
+    SCHEMA_INVALID = "schema_invalid"
 
 
 class ValidationIssue(str):
@@ -165,6 +185,47 @@ def _issue(
     return ValidationIssue(message, hint, code=code, params=params)
 
 
+def _schema_issues(exc: PydanticValidationError) -> list[ValidationIssue]:
+    """Translate a ``Dough.model_validate`` failure into readable issues.
+
+    Only used by ``validate_yaml(strict_schema=True)`` — the path the
+    ``/validate`` endpoint (peel ``validate_dough``) takes for a dough that
+    exists on disk but is schema-invalid, so an authoring agent gets an
+    actionable hint instead of an opaque 404/500. Callers that model-validate
+    on their own (the save path) never pass ``strict_schema``.
+    """
+    issues: list[ValidationIssue] = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err["loc"])
+        etype = err.get("type", "")
+        detail = err.get("msg", "invalid value")
+        if etype == "missing" and err["loc"] in (("return",), ("return_",)):
+            # Reuse the existing code/i18n so the missing-return hint reads
+            # identically to the _validate_for_save path.
+            issues.append(_issue(
+                "Dough has no `return:` block.",
+                hint="every flour and dough must declare a `return:` block "
+                     "mapping declared `outputs:` names to in-scope ${refs}.",
+                code=ValidationCode.RETURN_MISSING,
+            ))
+        elif etype == "extra_forbidden":
+            issues.append(_issue(
+                f"`{loc}` is not a valid dough.yaml field.",
+                hint="delete this key — field descriptions live in box.yaml, "
+                     "not dough.yaml; an input/output def allows only "
+                     "type/required/default/options/model.",
+                code=ValidationCode.SCHEMA_INVALID,
+                params={"loc": loc, "type": etype, "detail": detail},
+            ))
+        else:
+            issues.append(_issue(
+                f"`{loc}`: {detail}.",
+                code=ValidationCode.SCHEMA_INVALID,
+                params={"loc": loc, "type": etype, "detail": detail},
+            ))
+    return issues
+
+
 def validate(
     dough: Dough,
     *,
@@ -193,12 +254,21 @@ def validate_yaml(
     *,
     store: "DoughStore | None" = None,
     box: "Box | None" = None,
+    strict_schema: bool = False,
 ) -> list[ValidationIssue]:
     """Parse a raw YAML dict as a :class:`Dough` and run :func:`validate`.
 
-    Returns ``[]`` when the dict isn't a parseable Dough at all — load-time
-    schema errors surface on the next disk write through Pydantic, and
-    double-reporting them here just duplicates the noise.
+    By default returns ``[]`` when the dict isn't a parseable Dough at all —
+    load-time schema errors surface on the next disk write through Pydantic,
+    and double-reporting them here just duplicates the noise for save-path
+    callers that model-validate on their own.
+
+    ``strict_schema=True`` instead surfaces those schema errors as
+    ``SCHEMA_INVALID`` / reused ``RETURN_MISSING`` issues (via
+    :func:`_schema_issues`). Pass it ONLY from callers with no model_validate
+    safety net of their own — today just the ``/validate`` endpoint backing
+    the peel ``validate_dough`` tool, so an authoring agent gets an actionable
+    hint instead of an opaque 404/500. Every other caller keeps the default.
 
     Pre-parse rejections (``FORBIDDEN_PRE_PARSE_KEYS``) catch
     shape-inferred fields like ``kind:`` that Pydantic's ``extra="allow"``
@@ -210,7 +280,7 @@ def validate_yaml(
         for key, hint in FORBIDDEN_PRE_PARSE_KEYS.items():
             if key in dough_dict:
                 pre_errors.append(_issue(
-                    f"`{key}:` is not a YAML field — it is shape-inferred.",
+                    f"`{key}:` is not a valid dough.yaml field.",
                     hint=f"delete the `{key}:` line. {hint}",
                     code=ValidationCode.FORBIDDEN_PRE_PARSE_KEY,
                     params={"key": key},
@@ -218,7 +288,9 @@ def validate_yaml(
 
     try:
         dough = Dough.model_validate(dough_dict)
-    except PydanticValidationError:
+    except PydanticValidationError as exc:
+        if strict_schema:
+            return pre_errors + _schema_issues(exc)
         return pre_errors
     issues = pre_errors + _validate_for_save(dough, store=store)
     if box is not None:
@@ -265,7 +337,7 @@ def _validate_for_save(
     if has_steps and has_action:
         errors.append(_issue(
             "Dough has both `action:` and `steps:` — pick one.",
-            hint="use `action:` for a flour (single tool/agent/web step) or "
+            hint="use `action:` for a flour (single tool/agent step) or "
                  "`steps:` for a dough (composition)",
             code=ValidationCode.DOUGH_HAS_BOTH,
         ))
@@ -273,10 +345,18 @@ def _validate_for_save(
 
     if has_action:
         errors.extend(checks.action(dough))
-        if is_kit_dough(dough.id):
+        if is_kit_dough(dough.path):
             errors.extend(checks.kit_outputs(dough))
 
     errors.extend(checks.display_types(dough))
+
+    if dough.spread is not None:
+        errors.extend(_spread_issues(dough))
+        if spark_model.has_trigger_map(dough.spread):
+            errors.extend(_spark_issues(dough, store))
+
+    if dough.default_spread and store is not None:
+        errors.extend(_view_ref_issues(dough, store))
 
     if not dough.return_:
         errors.append(_issue(
@@ -318,7 +398,7 @@ def _validate_for_save(
                 errors.append(_issue(
                     "DoughStep has no dough reference",
                     hint="every `- dough:` step needs a flour/dough id; "
-                         "discover candidates: peel flours --verb <v> ",
+                         "discover candidates: peel flours --object <o> ",
                     code=ValidationCode.DOUGH_STEP_MISSING_REF,
                 ))
         elif isinstance(step, EachStep):
@@ -351,7 +431,12 @@ def _validate_for_save(
                          "(at minimum one `- dough:` call)",
                     code=ValidationCode.ALL_STEP_MISSING_DO,
                 ))
-            if not (1 <= step.max_parallel <= MAX_PARALLEL_CEILING):
+            # A ``${ref}`` width has no value to range-check yet; the executor's
+            # clamp is what bounds it (``iterate.resolve_parallel_cap`` +
+            # ``min(cap, MAX_PARALLEL_CEILING)``). Checking a literal here is
+            # still worth it — an author who typed 500 finds out now.
+            if isinstance(step.max_parallel, int) and not (
+                    1 <= step.max_parallel <= MAX_PARALLEL_CEILING):
                 errors.append(_issue(
                     f"AllStep max_parallel={step.max_parallel} is out of range "
                     f"(1..{MAX_PARALLEL_CEILING}).",
@@ -361,6 +446,16 @@ def _validate_for_save(
                     code=ValidationCode.ALL_STEP_MAX_PARALLEL_RANGE,
                     params={"value": str(step.max_parallel), "max": str(MAX_PARALLEL_CEILING)},
                 ))
+            # `batch_size` is an `each:` knob — `all:` replaces batching with
+            # concurrency and never reads it. Reject rather than silently ignore.
+            if step.scale is not None and "batch_size" in step.scale.model_fields_set:
+                errors.append(_issue(
+                    "AllStep sets `scale.batch_size`, which `all:` ignores.",
+                    hint="`all:` runs items concurrently instead of in batches — "
+                         "drop `batch_size` and use `max_parallel:` to size the "
+                         "fan-out (`scale.soft_cap`/`strategy` still apply).",
+                    code=ValidationCode.ALL_STEP_BATCH_SIZE,
+                ))
 
     # --- Ref resolution: refs must resolve to inputs.* or an in-scope name ---
     # In-scope names come from two sources:
@@ -368,11 +463,42 @@ def _validate_for_save(
     #   2. each-body auto-promote: an `each:` body's last `dough:` id
     #      becomes available as a list in the surrounding scope
     available: set[str] = set()
+    # `inputs` and `vault` are ambient roots (deps._AMBIENT_ROOTS): a bare
+    # ${inputs} ref is the whole inputs object, always in scope at runtime
+    # (resolver.set("inputs", …)). A web write dough uses it to json-dump its
+    # inputs into an eval_js snippet — the escaped form that survives a quote/
+    # apostrophe in the text. `${vault.<key>}` is redeemed at the sink against the
+    # page origin, so it needs no publishing step — it is valid at any depth, not
+    # only inside an `each` body.
+    available.add("inputs")
+    available.add("vault")
     for name in dough.inputs:
         available.add(f"inputs.{name}")
 
     # Detect duplicate auto-publish names — collision == write-time error.
     publishers: dict[str, int] = {}
+
+    # Pre-pass: every ${ref} ROOT used anywhere — top-level steps, each/all
+    # bodies (which `_collect_refs` scopes out, so descend the raw `do` list),
+    # and the return block. A duplicate auto-publish whose name is referenced
+    # NOWHERE is a pure side-effecting call (a driving flour re-invoked in
+    # sequence — e.g. webengine.browser.run_steps) — runtime is last-write-wins
+    # and the value is never read, so the collision is harmless, not a typo, and
+    # is exempt from the DUP_PUBLISH check below. A REFERENCED duplicate stays an
+    # error (the ref would bind ambiguously). Store-independent, so it holds on
+    # every call path (save + bake preflight) regardless of the flour's outputs.
+    referenced_roots: set[str] = set()
+    for _s in parsed_steps:
+        for _rp in _collect_refs(_s):
+            referenced_roots.add(_rp.split(".")[0])
+        _do = getattr(_s, "do", None)
+        if isinstance(_do, list):
+            for _raw in _do:
+                for _rp in _extract_refs_from_value(_raw):
+                    referenced_roots.add(_rp.split(".")[0])
+    for _expr in dough.return_.values():
+        for _rp in _extract_refs(_expr):
+            referenced_roots.add(_rp.split(".")[0])
 
     for idx, step in enumerate(parsed_steps):
         refs = _collect_refs(step)
@@ -431,20 +557,37 @@ def _validate_for_save(
 
         published_name: str | None = None
         if isinstance(step, DoughStep) and step.dough:
-            published_name = bare_dough_id(step.dough)
+            # ``publish_as`` first — the SAME precedence the runtime uses
+            # (``execution/scope.py``: ``publish_as or bare_dough_path``). Without
+            # it this pass disagrees with the engine about what a step is
+            # called, and every top-level use of ``publish_as`` draws two false
+            # errors at once: a ``dup_publish`` against the sibling that shares
+            # its dough id, and a ``return_ref_no_publisher`` for the name it
+            # actually publishes under. ``each:``/``all:`` bodies keep resolving
+            # by bare id (``last_dough_id_in_steps``) — that is the documented
+            # behavior a body's own refs are written against, not an oversight.
+            published_name = step.publish_as or bare_dough_path(step.dough)
         elif isinstance(step, (EachStep, AllStep)):
             published_name = last_dough_id_in_steps(step.do)
 
         if published_name:
             if published_name in publishers:
-                # Infra kits (advanced.*) ship long compositions that
-                # legitimately re-call the same helper (basic.condition,
-                # write_fragment per bucket) in sequence — runtime is
-                # last-write-wins and each publish is consumed before
-                # the next overwrites. Skip the strict collision check
-                # for those; keep it for user-authored doughs where the
-                # collision is almost always a typo.
-                if not dough.id.startswith("advanced."):
+                # Two exemptions, OR'd:
+                #  1. Infra kits (advanced.*) ship long compositions that
+                #     legitimately re-call the same helper (basic.condition,
+                #     write_fragment per bucket) in sequence — last-write-wins,
+                #     each publish consumed before the next overwrites.
+                #  2. The published name is referenced NOWHERE (see the
+                #     referenced_roots pre-pass) — a pure side-effecting call
+                #     (a driving flour like run_steps re-invoked in sequence);
+                #     nobody reads it, so the collision is harmless.
+                # Otherwise keep the strict check — for user-authored doughs a
+                # referenced collision is almost always a typo.
+                exempt = (
+                    dough.path.startswith("advanced.")
+                    or published_name not in referenced_roots
+                )
+                if not exempt:
                     errors.append(_issue(
                         f"Step {idx} publishes '{published_name}' but step "
                         f"{publishers[published_name]} already published it — "
@@ -547,7 +690,13 @@ def _validate_for_save(
                     },
                 ))
 
+    errors.extend(checks.step_with_keys(dough, store))
     errors.extend(checks.items_table(dough, parsed_steps, publishers))
+    errors.extend(checks.parallel_shared_tab(dough, parsed_steps, publishers))
+    errors.extend(checks.literal_aria_ref(dough))
+    errors.extend(checks.run_steps_guarded(dough))
+    errors.extend(checks.web_query_is_applied(dough))
+    errors.extend(checks.login_contract(dough))
 
     if store is not None:
         for ref in dict.fromkeys(_iter_dough_refs(dough)):
@@ -558,12 +707,265 @@ def _validate_for_save(
                     f"Step references dough '{ref}' but no such dough "
                     f"exists in the kit registry or user library.",
                     hint=f"discover real flour ids by capability: "
-                         f"peel flours --verb <v> --object <o>. "
+                         f"peel flours --object <o> --namespace <ns>. "
                          f"Never fabricate ids — copy them from listings. ",
                     code=ValidationCode.DOUGH_REF_NOT_FOUND,
                     params={"ref": ref},
                 ))
 
+    return errors
+
+
+def _spread_issues(dough: Dough) -> list[ValidationIssue]:
+    """Gate a dough's frozen view's LAYOUT half (``dough.spread``) against the
+    surface-agnostic block catalog.
+
+    The block catalog + gate live in the neutral spread kernel
+    ``app.spreads`` (which imports nothing from ``app.doughs`` or ``app.memo``),
+    so ``app.doughs`` -> ``app.spreads`` is an ordinary downward edge — a normal
+    top-level import, no cycle. The old module-load cycle that forced a lazy
+    import here is GONE: the gate no longer lives behind ``app.memo``, so the
+    reverse ``app.doughs`` -> ``app.memo`` edge no longer exists. Reuses
+    ``composition_spec`` as the single block-catalog source of truth rather than
+    duplicating it into ``app.doughs``.
+
+    The gate is ``composition_spec`` ONLY (the surface-agnostic block check) —
+    never the surface-bound ``validate.validate``, which rejects a
+    ``<handle>.<name>`` composition and needs a registry surface a donut lacks.
+
+    We also thread the dough's donut-output shape into the gate so a block role
+    that reads a FIELD PATH which does NOT resolve against ``donut.output`` (the
+    "empty card" class — a bare ``answer`` role when the output is keyed
+    ``{result: …}``) fails here instead of painting blank live. The output's
+    top-level keys ARE the return-block keys; each object output's field set
+    (for a dotted tail) comes from its ``model:`` / inline ``schema:`` via
+    ``drill.output_fields``.
+    """
+    return_keys = frozenset(dough.return_) if dough.return_ else frozenset()
+    output_fields = {
+        key: drill.output_fields(out_def)
+        for key, out_def in dough.outputs.items()
+        if out_def.type == "object"
+    }
+
+    errors: list[ValidationIssue] = []
+    for msg in composition_spec(
+        dough.spread or {}, dough.path,
+        return_keys=return_keys, output_fields=output_fields,
+    ):
+        errors.append(_issue(
+            msg,
+            hint="the `spread:` render spec must be a "
+                 "`{tier: composition, blocks: [{block, roles, knobs}]}` over "
+                 "the spread block catalog — fix the flagged block/role/knob",
+            code=ValidationCode.INVALID_SPREAD,
+            params={"dough": dough.path, "detail": msg},
+        ))
+    return errors
+
+
+def _view_ref_issues(dough: Dough, store: "DoughStore") -> list[ValidationIssue]:
+    """The reference-shape check for ``default_spread:`` — ONE nominal question at
+    save time: does the pointed-at view exist, and does its declared anchor
+    match this dough's output shape? (``for.keys`` ⊆ return keys; a ``for.model``
+    must be one this dough's outputs declare, when both sides declare one.)
+
+    The render-time structural gate stays as the belt; this catches the pointer
+    that never matched BEFORE the first blank card."""
+    from app.doughs.definitions.spread import spreads_root_for
+    from app.spreads.artifact import store as spread_store
+
+    def _refuse(msg: str, hint: str) -> list[ValidationIssue]:
+        return [_issue(msg, hint=hint, code=ValidationCode.SPREAD_REF_INVALID,
+                       params={"dough": dough.path, "view": dough.default_spread})]
+
+    doc = spread_store.read_doc(spreads_root_for(store._doughs_dir), dough.default_spread)
+    if doc is None:
+        return _refuse(
+            f"default_spread '{dough.default_spread}' does not exist in the spread tree",
+            hint="mint the spread first (mint_spread / app.spreads.artifact.store.save_spread) or "
+                 "drop the pointer",
+        )
+    anchor = doc.get("for") or {}
+    keys = anchor.get("keys") or []
+    if keys:
+        missing = sorted(set(keys) - set(dough.return_ or {}))
+        if missing:
+            return _refuse(
+                f"default_spread '{dough.default_spread}' anchors keys {missing} this "
+                f"dough's return: does not produce",
+            hint="the view's `for.keys` must all be return keys of this dough — "
+                 "pick a matching view or fix the return block",
+            )
+    model = anchor.get("model") or ""
+    if model:
+        declared = {o.model for o in dough.outputs.values() if getattr(o, "model", None)}
+        if declared and model not in declared:
+            return _refuse(
+                f"default_spread '{dough.default_spread}' anchors model '{model}' but "
+                f"this dough's outputs declare {sorted(declared)}",
+                hint="the view's `for.model` must match an output's `model:` — "
+                     "pick a matching view or fix the output model",
+            )
+    return []
+
+
+def _act_target_inputs(
+    dough: Dough, store: "DoughStore | None"
+) -> dict[str, TargetInputs] | None:
+    """Resolve each press-gesture (``act``/``nav``) target's declared-input facts
+    for ``_gate_target_inputs``.
+
+    Two checks ride these facts, and they are NOT the same severity — worth keeping
+    straight, because only one of them fixes a silence:
+
+    * **an UNDECLARED key is silent.** ``execution.binding.resolve_inputs`` iterates
+      the CALLEE's declared inputs and nothing else, so a key the target does not
+      declare is dropped on the floor: the bake succeeds with a default while the
+      author believes the row's datum was passed. Identical to the step ``with:``
+      failure ``checks.step_with_keys`` refuses — same resolver, same drop, other
+      caller.
+    * **an UNBOUND required input is already loud.** The same function raises
+      ``BakeError(INPUT_REQUIRED)``. Gating it here only moves a certain runtime
+      failure to save time, which is still worth doing — a spark author otherwise
+      meets it on the first press, per row — but it repairs no silence.
+
+    ``required`` mirrors ``InputDef``'s own semantics (``value`` set → pinned,
+    ``default`` set → satisfied), so the "pass only what differs" idiom is not
+    false-rejected. Absence really is absence: ``runEffectAct`` POSTs the spark's
+    ``inputs`` map and nothing else, so no other channel can supply the key.
+
+    **The false-positive sweep that landed ``step_with_keys`` is NOT available
+    here, and saying "0 on 680 doughs" would be a vacuous claim.** Measured on the
+    real profile: 680 doughs, ONE carries a spark, and it declares zero ``act``
+    interactions — so the scan population is empty and a clean sweep would prove
+    only that nothing was examined. The safety argument is provability instead:
+    neither direction depends on runtime data (no data shape makes an undeclared
+    key arrive; no channel but this map feeds a required input), which is the same
+    ground the undeclared-key half of ``step_with_keys`` stood on before its
+    population happened to also be measurable.
+    """
+    if store is None:
+        return None
+    facts: dict[str, TargetInputs] = {}
+    for target in _press_targets(dough):
+        callee = store.get_dough(target)
+        if callee is None:
+            continue  # unresolvable — _spark_issues reports it; no facts to build
+        facts[target] = TargetInputs(
+            all=frozenset(callee.inputs),
+            required=frozenset(
+                name
+                for name, inp in callee.inputs.items()
+                if inp.required and inp.default is None and inp.value is None
+            ),
+        )
+    return facts or None
+
+
+def _press_targets(dough: "Dough"):
+    """Every dough id a press-gesture effect in this spread names, once each — an
+    `act` (`act:`) or a `nav` (`nav:`), both of which bake a TARGET dough.
+
+    The trigger maps ride on the blocks, so this walks the containment TREE — a
+    map on a block inside a `section` is as real as one at the top level, and a
+    top-level-only scan would silently skip it. That is the same lesson the
+    composition gate learned when it started walking.
+    """
+    from app.spreads.spark import anchor as _anchor
+
+    seen: set[str] = set()
+    for hit in _anchor.walk_blocks((dough.spread or {}).get("blocks") or []):
+        on = hit.block.get("on")
+        if not isinstance(on, dict):
+            continue
+        for trigger in ("press", "contextmenu"):
+            eff = on.get(trigger)
+            if not isinstance(eff, dict):
+                continue
+            target = eff.get("act") or eff.get("nav")
+            if isinstance(target, str) and target and target not in seen:
+                seen.add(target)
+                yield target
+
+
+def _spark_issues(
+    dough: Dough, store: "DoughStore | None" = None
+) -> list[ValidationIssue]:
+    """Gate a dough's frozen view's INTERACTIONS half (``dough.spread``) against the
+    surface-agnostic spark interaction catalog.
+
+    Mirrors ``_spread_issues``: the gate + catalog live in the neutral
+    ``app.spreads.spark`` kernel (imports nothing from ``app.doughs``/``app.memo``), so
+    ``app.doughs`` -> ``app.spreads.spark`` is an ordinary top-level downward edge.
+
+    A spark anchors into the dough's OWN ``spread`` blocks, threaded in here (the
+    identical seam ``_spread_issues`` uses for return_keys/output_fields).
+
+    ``target_inputs`` is threaded too, when a ``store`` is passed — the cross-dough
+    "an ``act``'s ``inputs`` are the target's real declared inputs" facts. This was
+    deferred, and the deferral had a cost: ``_gate_act_inputs`` was WRITTEN and
+    unreachable, ``TargetInputs`` had zero construction sites, so the gate read as
+    live in both this docstring and ``app/sparks/CLAUDE.md`` while checking nothing
+    beyond each value's ``$.<field>`` shape. A gate nobody feeds is the same silence
+    it exists to refuse.
+
+    Only ``act`` and ``nav`` interactions name a target (a ``read`` re-calls this
+    dough's own source, an ``open`` hands off the row's URL), so only those are
+    resolved. An unresolvable target is reported HERE (``DOUGH_REF_NOT_FOUND``) —
+    the step-ref pass walks only ``dough.steps`` and never sees interactions — and
+    contributes no facts, so the membership half self-skips instead of stacking a
+    second issue on it.
+    """
+    if not (dough.spread or {}).get("blocks"):
+        return [_issue(
+            "interactions make a layout interactive, but this view has no layout",
+            hint="give the view a `layout:` for its `interactions:` to anchor "
+                 "into, or drop the `interactions:` from spread/spread.yaml",
+            code=ValidationCode.INVALID_SPARK,
+            params={"dough": dough.path},
+        )]
+    spread_blocks = (dough.spread or {}).get("blocks") or []
+
+    errors: list[ValidationIssue] = []
+    # An act's TARGET must exist — checked HERE, because nothing else looks:
+    # `_iter_dough_refs` walks only `dough.steps`, so the step-ref
+    # DOUGH_REF_NOT_FOUND pass never sees `view.interactions`, and
+    # `_act_target_inputs` builds no facts for an unresolvable id (its membership
+    # gate then self-skips). Without this pass a typo'd target cleared every
+    # authoring seam and 404'd on every user press.
+    if store is not None:
+        for target in _press_targets(dough):
+            if store.get_dough(target) is None:
+                errors.append(_issue(
+                    f"spark press targets dough '{target}' but no such dough "
+                    f"exists in the kit registry or user library.",
+                    hint="discover real flour ids by capability: "
+                         "peel flours --verb <v> --object <o>. "
+                         "Never fabricate ids — copy them from listings.",
+                    code=ValidationCode.DOUGH_REF_NOT_FOUND,
+                    params={"ref": target, "dough": dough.path},
+                ))
+    # `source_consequence` = the OWNING dough's declared tier — a `read` re-calls
+    # THIS dough (its own source), so that tier gates the read side-effect-free
+    # check (CQRS).
+    # The frozen spread IS the spark_spec input: the trigger maps ride on its
+    # blocks, so there is no second document to thread and no way for the two to
+    # disagree about which layout the controller belongs to.
+    for msg in spark_spec(
+        dough.spread or {},
+        dough.path,
+        target_inputs=_act_target_inputs(dough, store),
+        source_consequence=dough.consequence,
+    ):
+        errors.append(_issue(
+            msg,
+            hint="a block's `on:` map is trigger -> effect — "
+                 "`{press: {act|open, ...}, contextmenu: {...}, refresh: {read}}`. "
+                 "Fix the flagged trigger's effect or its fields",
+            code=ValidationCode.INVALID_SPARK,
+            params={"dough": dough.path, "detail": msg},
+        ))
     return errors
 
 
@@ -583,18 +985,12 @@ def _validate_for_load(
     rule 9. Pass None to skip it.
     """
     errors: list[ValidationIssue] = []
-    dough_id = dough.id
-
-    # Web doughs (web.<site>.<action>) carry `web:` steps plus the
-    # web-step-local `save:`/`when:`/`on_error:` fields — all LEGAL at
-    # their tier, all FORBIDDEN at composition level (see web_dough.py).
-    # They are validated by their own strict schema (WebDough/WebStep)
-    # at model_validate time; the composition rules below do not apply.
-    # Without this skip every `web:` step trips R5 at load.
-    if is_web_dough(dough_id):
-        return errors
+    dough_path = dough.path
 
     errors.extend(checks.step_shapes(dough.steps))
+    # The login contract is a boot-time rule too: a login dough missing a rung
+    # must fail at kit-load, the way an invalid verb does — not only on save.
+    errors.extend(checks.login_contract(dough))
 
     # Cross-ref rules need the full index.
     if all_doughs is None:
@@ -603,17 +999,17 @@ def _validate_for_load(
     refs = _iter_dough_refs(dough)
 
     # --- Rule 9: fixed may not reference a missing custom target ---
-    if is_fixed(dough_id):
+    if is_fixed(dough_path):
         for ref in refs:
-            if not ref.startswith(CLASS_USER_PREFIX):
+            if not ref.startswith(custom_prefix()):
                 continue
             if all_doughs.get(ref) is None:
                 errors.append(_issue(
-                    f"fixed dough '{dough_id}' references missing custom dough "
+                    f"fixed dough '{dough_path}' references missing custom dough "
                     f"'{ref}'",
                     hint="list user doughs: peel doughs",
                     code=ValidationCode.FIXED_REFS_MISSING_USER,
-                    params={"dough": dough_id, "ref": ref},
+                    params={"dough": dough_path, "ref": ref},
                 ))
 
     return errors
@@ -629,7 +1025,13 @@ def _iter_dough_refs(dough: Dough) -> list[str]:
         for raw in step_list:
             if not isinstance(raw, dict):
                 continue
-            if isinstance(raw.get("dough"), str):
+            route = raw.get("route")
+            if isinstance(route, dict) and route:
+                # Routed step: `dough` is a `${handle}` placeholder resolved at
+                # bake time, not an id. The real callees are the route targets —
+                # existence-check those.
+                refs.extend(t for t in route.values() if isinstance(t, str))
+            elif isinstance(raw.get("dough"), str):
                 refs.append(raw["dough"])
             # `each` steps carry nested sub-steps under `do`.
             sub = raw.get("do")
